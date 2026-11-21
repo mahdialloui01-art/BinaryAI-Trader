@@ -38,9 +38,11 @@ class MainActivity : Activity() {
     private val streamClient = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build()
     private var tickSocket: WebSocket? = null
     private var streamHandshakeDone = false
+    private var streamConnected = false
+    private var streamSubscribed = false
+    private var lastStreamTickAt = 0L
     private var streamReconnectPending = false
     private val streamReconnect = object : Runnable { override fun run() { streamReconnectPending = false; startTickStream() } }
-    private var lastCandlePoll = 0L
     private var lastQualityPoll = 0L
     private val liveLoop = object : Runnable {
         override fun run() {
@@ -344,17 +346,7 @@ class MainActivity : Activity() {
     private fun pollLiveMarket() {
         if (!::base.isInitialized || base.text.isBlank()) return
         val now = android.os.SystemClock.elapsedRealtime()
-        if (now - lastCandlePoll >= 10000L && !liveCandlesBusy) {
-            lastCandlePoll = now
-            liveCandlesBusy = true
-            request("/market/${encodedSymbol()}/candles?interval=1m&limit=100") { obj, _ ->
-                liveCandlesBusy = false
-                if (obj != null) {
-                    lastCandles = extractCandles(obj)
-                    if (activePage == "home" && ::chart.isInitialized) chart.setCandles(lastCandles)
-                }
-            }
-        }
+        // Candles are built from each incoming tick. This timer only refreshes diagnostics.
         if (now - lastQualityPoll >= 30000L && !liveQualityBusy) {
             lastQualityPoll = now
             liveQualityBusy = true
@@ -364,60 +356,146 @@ class MainActivity : Activity() {
                 else if (::qualityText.isInitialized) qualityText.text = error ?: "تعذر فحص جودة المصدر"
             }
         }
+        val age = if (lastStreamTickAt > 0L) System.currentTimeMillis() - lastStreamTickAt else Long.MAX_VALUE
+        if (tickSocket == null && !streamReconnectPending) startTickStream()
+        if (::status.isInitialized && streamConnected && age > 15000L) {
+            status.text = "● WebSocket متصل لكن لا تصل تحديثات سعر منذ ${age / 1000}s"
+            status.setTextColor(red)
+        }
     }
 
     private fun startTickStream() {
         if (!::symbol.isInitialized || base.text.isBlank() || tickSocket != null) return
         streamHandshakeDone = false
+        streamConnected = false
+        streamSubscribed = false
+        runOnUiThread { if (::status.isInitialized) { status.text = "● جاري الاتصال بمصدر الأسعار الحي…"; status.setTextColor(Color.rgb(255,194,91)) } }
         val negotiate = Request.Builder()
             .url("https://biquote.io/hubs/tick/negotiate?negotiateVersion=1")
+            .header("Origin", "https://biquote.io")
             .post(RequestBody.create(null, ByteArray(0)))
             .build()
         streamClient.newCall(negotiate).enqueue(object : Callback {
             override fun onFailure(call: Call, e: java.io.IOException) {
+                runOnUiThread { if (::status.isInitialized) { status.text = "● فشل تفاوض SignalR: ${e.message}"; status.setTextColor(red) } }
                 scheduleStreamReconnect()
             }
             override fun onResponse(call: Call, response: Response) {
                 val body = response.body?.string().orEmpty()
-                if (!response.isSuccessful) { scheduleStreamReconnect(); return }
+                if (!response.isSuccessful) {
+                    runOnUiThread { if (::status.isInitialized) { status.text = "● تفاوض SignalR فشل HTTP ${response.code}"; status.setTextColor(red) } }
+                    scheduleStreamReconnect(); return
+                }
                 val token = try { JSONObject(body).optString("connectionToken") } catch (_: Exception) { "" }
-                if (token.isBlank()) { scheduleStreamReconnect(); return }
+                if (token.isBlank()) {
+                    runOnUiThread { if (::status.isInitialized) { status.text = "● الخادم لم يرجع connectionToken"; status.setTextColor(red) } }
+                    scheduleStreamReconnect(); return
+                }
                 val wsUrl = "wss://biquote.io/hubs/tick?id=" + URLEncoder.encode(token, "UTF-8")
-                val wsRequest = Request.Builder().url(wsUrl).build()
+                val wsRequest = Request.Builder().url(wsUrl).header("Origin", "https://biquote.io").build()
                 tickSocket = streamClient.newWebSocket(wsRequest, object : WebSocketListener() {
                     override fun onOpen(webSocket: WebSocket, response: Response) {
+                        streamConnected = true
                         webSocket.send("{\"protocol\":\"json\",\"version\":1}" + 30.toChar().toString())
-                        runOnUiThread { if (::status.isInitialized) { status.text = "● WebSocket متصل — انتظار Tick"; status.setTextColor(mint) } }
+                        runOnUiThread { if (::status.isInitialized) { status.text = "● WebSocket مفتوح — إتمام SignalR handshake"; status.setTextColor(Color.rgb(255,194,91)) } }
                     }
                     override fun onMessage(webSocket: WebSocket, text: String) {
                         try {
-                            text.split('\u001e').filter { it.isNotBlank() }.forEach { frame ->
+                            text.split(30.toChar()).filter { it.isNotBlank() }.forEach { frame ->
                                 val packet = JSONObject(frame)
                                 if (!streamHandshakeDone && packet.length() == 0) {
                                     streamHandshakeDone = true
-                                    webSocket.send(JSONObject().put("type", 1).put("target", "Subscribe").put("arguments", JSONArray().put(JSONArray().put(safeSymbol()))).toString() + 30.toChar().toString())
-                                } else if (packet.optInt("type") == 1 && packet.optString("target") == "ReceiveTick") {
-                                    val tick = packet.optJSONArray("arguments")?.optJSONObject(0) ?: return@forEach
-                                    if (tick.optString("symbol").equals(safeSymbol(), true)) {
-                                        val normalized = JSONObject().put("provider", "biquote").put("symbol", tick.optString("symbol", safeSymbol())).put("bid", tick.opt("bid") ?: JSONObject.NULL).put("ask", tick.opt("ask") ?: JSONObject.NULL).put("mid", tick.opt("mid") ?: tick.opt("price") ?: JSONObject.NULL).put("timestamp", tick.opt("timestamp") ?: tick.opt("time") ?: JSONObject.NULL).put("stale", false).put("stream", "signalr_websocket")
-                                        runOnUiThread { lastTick = normalized; if (::marketText.isInitialized && activePage == "home") renderTick(); if (::status.isInitialized) { status.text = "● بث WebSocket مباشر | " + safeSymbol(); status.setTextColor(mint) } }
+                                    val subscribe = JSONObject().put("type", 1).put("invocationId", "1")
+                                        .put("target", "Subscribe").put("arguments", JSONArray().put(JSONArray().put(safeSymbol())))
+                                    webSocket.send(subscribe.toString() + 30.toChar().toString())
+                                    val latest = JSONObject().put("type", 1).put("invocationId", "2")
+                                        .put("target", "GetLatestTick").put("arguments", JSONArray().put(safeSymbol()))
+                                    webSocket.send(latest.toString() + 30.toChar().toString())
+                                    streamSubscribed = true
+                                    runOnUiThread { if (::status.isInitialized) { status.text = "● تم طلب الاشتراك في ${safeSymbol()} — انتظار أول Tick"; status.setTextColor(Color.rgb(255,194,91)) } }
+                                } else {
+                                    val target = packet.optString("target")
+                                    if (packet.optInt("type") == 1 && target == "ReceiveTick") {
+                                        val args = packet.optJSONArray("arguments")
+                                        val tick = args?.optJSONObject(0) ?: args?.optJSONArray(0)?.optJSONObject(0)
+                                        if (tick != null && tick.optString("symbol").equals(safeSymbol(), true)) applyStreamTick(tick)
+                                    } else if (packet.optInt("type") == 1 && target == "ReceiveSubscriptionState") {
+                                        val args = packet.optJSONArray("arguments")
+                                        val state = args?.optJSONObject(0) ?: args?.optJSONArray(0)?.optJSONObject(0)
+                                        val marketState = state?.optString("marketState", state.optString("state", "unknown")) ?: "unknown"
+                                        runOnUiThread { if (::status.isInitialized && lastStreamTickAt == 0L) { status.text = "● الاشتراك فعّال — حالة السوق: $marketState"; status.setTextColor(Color.rgb(255,194,91)) } }
+                                    } else if (packet.optInt("type") == 3) {
+                                        val error = packet.optString("error")
+                                        if (error.isNotBlank()) runOnUiThread { if (::status.isInitialized) { status.text = "● رفض الخادم الطلب: $error"; status.setTextColor(red) } }
+                                        val result = packet.optJSONObject("result")
+                                        if (packet.optString("invocationId") == "2" && result != null) applyStreamTick(result)
+                                    } else if (packet.has("error")) {
+                                        val error = packet.optString("error")
+                                        runOnUiThread { if (::status.isInitialized) { status.text = "● SignalR: $error"; status.setTextColor(red) } }
                                     }
                                 }
                             }
-                        } catch (_: Exception) { }
+                        } catch (e: Exception) {
+                            runOnUiThread { if (::status.isInitialized) { status.text = "● خطأ في قراءة Tick: ${e.message}"; status.setTextColor(red) } }
+                        }
                     }
                     override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
-                        tickSocket = null
+                        streamConnected = false; streamSubscribed = false; tickSocket = null
+                        runOnUiThread { if (::status.isInitialized) { status.text = "● انقطع البث: ${t.message ?: response?.code} — إعادة الاتصال"; status.setTextColor(red) } }
                         scheduleStreamReconnect()
-                        runOnUiThread { if (::status.isInitialized) { status.text = "● انقطع البث — إعادة الاتصال"; status.setTextColor(red) } }
                     }
                     override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
-                        tickSocket = null
+                        streamConnected = false; streamSubscribed = false; tickSocket = null
+                        runOnUiThread { if (::status.isInitialized) { status.text = "● أُغلق البث ($code): $reason"; status.setTextColor(red) } }
                         scheduleStreamReconnect()
                     }
                 })
             }
         })
+    }
+
+    private fun applyStreamTick(tick: JSONObject) {
+        val mid = tick.optDouble("mid", Double.NaN).takeIf { it.isFinite() }
+            ?: tick.optDouble("price", Double.NaN).takeIf { it.isFinite() }
+            ?: run {
+                val bid = tick.optDouble("bid", Double.NaN)
+                val ask = tick.optDouble("ask", Double.NaN)
+                if (bid.isFinite() && ask.isFinite()) (bid + ask) / 2.0 else null
+            }
+        if (mid == null) return
+        lastStreamTickAt = System.currentTimeMillis()
+        val normalized = JSONObject().put("provider", "biquote").put("symbol", tick.optString("symbol", safeSymbol()))
+            .put("bid", tick.opt("bid") ?: JSONObject.NULL).put("ask", tick.opt("ask") ?: JSONObject.NULL)
+            .put("mid", mid).put("timestamp", tick.opt("timestamp") ?: tick.opt("time") ?: JSONObject.NULL)
+            .put("stale", false).put("stream", "signalr_websocket")
+        runOnUiThread {
+            lastTick = normalized
+            if (::marketText.isInitialized && activePage == "home") renderTick()
+            if (::status.isInitialized) { status.text = "● بث حي فعلي — ${safeSymbol()} — وصل Tick الآن"; status.setTextColor(mint) }
+            updateLiveCandle(mid, normalized.optString("timestamp", ""))
+        }
+    }
+
+    private fun updateLiveCandle(price: Double, timestamp: String) {
+        val parser = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }
+        val tickTime = try { parser.parse(timestamp.take(19))?.time ?: System.currentTimeMillis() } catch (_: Exception) { System.currentTimeMillis() }
+        val bucket = tickTime / 60000L * 60000L
+        val openTime = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date(bucket))
+        val lastIndex = lastCandles.length() - 1
+        val last = if (lastIndex >= 0) lastCandles.optJSONObject(lastIndex) else null
+        val lastTime = last?.optString("openTime", last.optString("timestamp", "")) ?: ""
+        val lastBucket = try { parser.parse(lastTime.take(19))?.time?.div(60000L)?.times(60000L) ?: -1L } catch (_: Exception) { -1L }
+        if (last == null || lastBucket != bucket) {
+            val candle = JSONObject().put("openTime", openTime).put("open", price).put("high", price)
+                .put("low", price).put("close", price).put("isOpen", true).put("tickVolume", 1)
+            lastCandles.put(candle)
+            while (lastCandles.length() > 300) lastCandles.remove(0)
+        } else {
+            last.put("high", max(last.optDouble("high", price), price))
+            last.put("low", min(last.optDouble("low", price), price))
+            last.put("close", price).put("isOpen", true).put("tickVolume", last.optInt("tickVolume", 0) + 1)
+        }
+        if (activePage == "home" && ::chart.isInitialized) chart.setCandles(lastCandles)
     }
 
     private fun scheduleStreamReconnect() { if (!streamReconnectPending) { streamReconnectPending = true; liveHandler.postDelayed(streamReconnect, 5000L) } }
@@ -426,8 +504,12 @@ class MainActivity : Activity() {
 
     private fun refreshMarket() {
         request("/market/${encodedSymbol()}/tick") { obj, error ->
-            if (obj != null) { lastTick = obj; if (activePage == "home") renderTick() }
-            else toast("تعذر جلب السعر: " + (error ?: "خطأ"))
+            if (obj != null) {
+                if (lastStreamTickAt == 0L || System.currentTimeMillis() - lastStreamTickAt > 15000L) {
+                    lastTick = obj
+                    if (activePage == "home") renderTick()
+                }
+            } else if (lastStreamTickAt == 0L) toast("تعذر جلب السعر: " + (error ?: "خطأ"))
         }
         loadQuality()
         request("/market/${encodedSymbol()}/candles?interval=1m&limit=100") { obj, error ->
@@ -462,7 +544,7 @@ class MainActivity : Activity() {
         priceText.text = if (mid == null || mid == JSONObject.NULL) "--" else mid.toString()
         changeText.text = "Bid: ${display(bid)}     Ask: ${display(ask)}"
         val stale = lastTick.optBoolean("stale", false)
-        val source = if (lastTick.optString("stream") == "signalr_websocket") "بث WebSocket مباشر" else "REST مرجعي"
+        val source = if (lastTick.optString("stream") == "signalr_websocket") "بث WebSocket مباشر" else "لقطة REST مرجعية"
         marketText.text = "BiQuote  •  $source  •  ${if (stale) "بيانات قديمة" else "آخر تحديث: " + lastTick.optString("timestamp", "--")}"
         marketText.setTextColor(if (stale) red else muted)
     }
