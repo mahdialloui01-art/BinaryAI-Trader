@@ -176,6 +176,15 @@ async def market_quality(
         raise HTTPException(status_code=502, detail=f"Feed quality check failed: {exc}") from exc
 
 
+@app.get("/deriv/{symbol}/contracts")
+async def deriv_contracts(symbol: str = Query(..., min_length=2, max_length=30, pattern="^[A-Za-z0-9_]+$")):
+    """Return contract types Deriv currently lists for this underlying; no trade is placed."""
+    try:
+        return await data_service().reference_contracts(symbol)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Deriv contract catalogue unavailable: {exc}") from exc
+
+
 @app.get("/deriv/stream")
 async def deriv_stream(symbol: str = Query(..., min_length=2, max_length=30, pattern="^[A-Za-z0-9_]+$")):
     """Stream public Deriv ticks as server-sent events; no account token required."""
@@ -183,9 +192,9 @@ async def deriv_stream(symbol: str = Query(..., min_length=2, max_length=30, pat
         try:
             yield "event: status\ndata: " + __import__("json").dumps({"status":"connecting","provider":"deriv","symbol":symbol}) + "\n\n"
             async for tick in data_service().stream_reference_ticks(symbol):
-                yield "event: tick\\ndata: " + __import__("json").dumps(tick) + "\\n\\n"
+                yield "event: tick\\ndata: " + __import__("json").dumps(tick) + "\n\n"
         except Exception as exc:
-            yield "event: error\\ndata: " + __import__("json").dumps({"provider":"deriv","symbol":symbol,"error":str(exc)}) + "\\n\\n"
+            yield "event: error\ndata: " + __import__("json").dumps({"provider":"deriv","symbol":symbol,"error":str(exc)}) + "\\n\\n"
     return StreamingResponse(relay(), media_type="text/event-stream", headers={
         "Cache-Control":"no-cache, no-transform", "Connection":"keep-alive", "X-Accel-Buffering":"no"
     })
