@@ -66,6 +66,28 @@ class DerivFeed:
             "underlying": payload.get("underlying"),
         }
 
+    async def binary_contracts_for(self, symbol: str):
+        """Return only fixed-payout/binary-style contracts advertised for an underlying."""
+        response = await self.contracts_for(symbol)
+        allowed_categories = {
+            "callput", "highlow", "touchnotouch", "digits", "endsinout",
+            "staysinout", "asian", "lookback", "resetcallput", "runhighlow",
+        }
+        contracts = []
+        for item in response.get("available", []):
+            category = str(item.get("contract_category") or "").lower()
+            contract_type = str(item.get("contract_type") or "").upper()
+            if category in allowed_categories and contract_type:
+                contracts.append(item)
+        return {
+            "provider": self.name,
+            "product": "binary_options",
+            "symbol": symbol,
+            "available": contracts,
+            "binary_options_available": bool(contracts),
+            "checked_at": datetime.now(timezone.utc).isoformat(),
+        }
+
     async def candles(self, symbol: str, interval: str = "1m", limit: int = 300):
         granularity = GRANULARITY.get(interval)
         if not granularity:
