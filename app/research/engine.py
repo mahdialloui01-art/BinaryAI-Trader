@@ -182,22 +182,22 @@ def _time_quality(bars: list[dict[str, Any]], interval: str) -> dict[str, Any]:
                 gaps += max(1, round(delta / seconds) - 1)
     latest_age = max(0.0, (datetime.now(timezone.utc) - stamps[-1]).total_seconds()) if stamps else None
     return {
-        "timestamped_bars": len(stamps), "missing_bars_estimate": gaps,
+        "timestamped_bars": len(stamps), "timestamp_coverage": round(len(stamps) / max(1, len(bars)), 4), "missing_bars_estimate": gaps,
         "latest_closed_bar_age_seconds": round(latest_age, 2) if latest_age is not None else None,
-        "stale": latest_age is None or latest_age > seconds * 3.5,
+        "stale": latest_age is None or latest_age > seconds * 3.5 or len(stamps) / max(1, len(bars)) < 0.98,
         "gap_ratio": gaps / max(1, len(bars) + gaps),
     }
 
 
-def _timeframe_bias(rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _timeframe_bias(rows: list[dict[str, Any]], interval: str) -> dict[str, Any]:
     bars = _valid_candles(rows)
     if len(bars) < 55:
-        return {"bias": "UNAVAILABLE", "bars": len(bars)}
+        return {"bias": "UNAVAILABLE", "bars": len(bars), "quality": _time_quality(bars, interval)}
     closes = [x["close"] for x in bars]
     e21, e50 = _ema(closes, 21), _ema(closes, 50)
     slope = e21[-1] - e21[-5]
     bias = "BULLISH" if e21[-1] > e50[-1] and slope > 0 else "BEARISH" if e21[-1] < e50[-1] and slope < 0 else "NEUTRAL"
-    return {"bias": bias, "ema21": round(e21[-1], 8), "ema50": round(e50[-1], 8), "bars": len(bars)}
+    return {"bias": bias, "ema21": round(e21[-1], 8), "ema50": round(e50[-1], 8), "bars": len(bars), "quality": _time_quality(bars, interval)}
 
 
 def analyze_binary_options(
@@ -248,7 +248,7 @@ def analyze_binary_options(
     momentum8 = last["close"] - closes[-9]
     ret5 = (closes[-1] / closes[-6] - 1) * 100
     ret20 = (closes[-1] / closes[-21] - 1) * 100
-    mtf = {tf: _timeframe_bias(rows) for tf, rows in (higher_timeframes or {}).items()}
+    mtf = {tf: _timeframe_bias(rows, tf) for tf, rows in (higher_timeframes or {}).items()}
     available_mtf = [x["bias"] for x in mtf.values() if x["bias"] != "UNAVAILABLE"]
     bull_mtf = sum(x == "BULLISH" for x in available_mtf)
     bear_mtf = sum(x == "BEARISH" for x in available_mtf)
@@ -301,7 +301,11 @@ def analyze_binary_options(
         blockers.append("EXCESSIVE_CANDLE_GAPS")
     if len(available_mtf) < 2:
         blockers.append("INSUFFICIENT_HIGHER_TIMEFRAME_CONFIRMATION")
-    if mtf_consensus != candidate and candidate != "NO_TRADE":
+    if any(x.get("quality", {}).get("stale") for x in mtf.values() if x.get("bias") != "UNAVAILABLE"):
+        blockers.append("STALE_HIGHER_TIMEFRAME_CANDLES")
+    if any(x.get("quality", {}).get("gap_ratio", 0) > 0.08 for x in mtf.values() if x.get("bias") != "UNAVAILABLE"):
+        blockers.append("HIGHER_TIMEFRAME_DATA_GAPS")
+    if mtf_dir != candidate and candidate != "NO_TRADE":
         blockers.append("HIGHER_TIMEFRAME_CONFLICT")
     if adx is not None and adx < 12:
         blockers.append("VERY_WEAK_TREND_OR_CHOP")
