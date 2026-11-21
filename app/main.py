@@ -5,6 +5,31 @@ from app.feeds.normalization import align_candles, classify_market
 from app.models import SignalDecision
 from app.storage import CandleStore
 
+from pydantic import BaseModel, Field
+from app.research.backtest import evaluate_binary_trades
+
+class ResearchEvaluationRequest(BaseModel):
+    candles: list[dict] = Field(min_length=2, max_length=20000)
+    trades: list[dict] = Field(default_factory=list, max_length=10000)
+    payout: float = Field(default=0.80, gt=0, le=1)
+    stake: float = Field(default=1.0, gt=0)
+    initial_equity: float = Field(default=100.0, gt=0)
+    tie_rule: str = "refund"
+    train_fraction: float = Field(default=0.60, gt=0, lt=1)
+    validation_fraction: float = Field(default=0.20, gt=0, lt=1)
+
+@app.post("/research/evaluate")
+async def research_evaluate(request: ResearchEvaluationRequest):
+    try:
+        return evaluate_binary_trades(
+            request.candles, request.trades, request.payout, request.stake,
+            request.initial_equity, request.tie_rule,
+            request.train_fraction, request.validation_fraction,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+
 app = FastAPI(
     title="BinaryAI-Trader API",
     version="0.3.0",
