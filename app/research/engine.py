@@ -154,7 +154,7 @@ def _fvg(bars: list[dict[str, Any]]) -> dict[str, Any] | None:
     return None
 
 
-def _time_quality(bars: list[dict[str, Any]], interval: str) -> dict[str, Any]:
+def _time_quality(bars: list[dict[str, Any]], interval: str, as_of: datetime | None = None) -> dict[str, Any]:
     stamps = []
     for bar in bars:
         raw = bar.get("timestamp")
@@ -180,7 +180,8 @@ def _time_quality(bars: list[dict[str, Any]], interval: str) -> dict[str, Any]:
             delta = (b - a).total_seconds()
             if delta > seconds * 1.5:
                 gaps += max(1, round(delta / seconds) - 1)
-    latest_age = max(0.0, (datetime.now(timezone.utc) - stamps[-1]).total_seconds()) if stamps else None
+    reference_time = as_of or datetime.now(timezone.utc)
+    latest_age = max(0.0, (reference_time - stamps[-1]).total_seconds()) if stamps else None
     return {
         "timestamped_bars": len(stamps), "timestamp_coverage": round(len(stamps) / max(1, len(bars)), 4), "missing_bars_estimate": gaps,
         "latest_closed_bar_age_seconds": round(latest_age, 2) if latest_age is not None else None,
@@ -189,10 +190,10 @@ def _time_quality(bars: list[dict[str, Any]], interval: str) -> dict[str, Any]:
     }
 
 
-def _timeframe_bias(rows: list[dict[str, Any]], interval: str) -> dict[str, Any]:
+def _timeframe_bias(rows: list[dict[str, Any]], interval: str, as_of: datetime | None = None) -> dict[str, Any]:
     bars = _valid_candles(rows)
     if len(bars) < 55:
-        return {"bias": "UNAVAILABLE", "bars": len(bars), "quality": _time_quality(bars, interval)}
+        return {"bias": "UNAVAILABLE", "bars": len(bars), "quality": _time_quality(bars, interval, as_of)}
     closes = [x["close"] for x in bars]
     e21, e50 = _ema(closes, 21), _ema(closes, 50)
     slope = e21[-1] - e21[-5]
@@ -248,7 +249,7 @@ def analyze_binary_options(
     momentum8 = last["close"] - closes[-9]
     ret5 = (closes[-1] / closes[-6] - 1) * 100
     ret20 = (closes[-1] / closes[-21] - 1) * 100
-    mtf = {tf: _timeframe_bias(rows, tf) for tf, rows in (higher_timeframes or {}).items()}
+    mtf = {tf: _timeframe_bias(rows, tf, as_of) for tf, rows in (higher_timeframes or {}).items()}
     available_mtf = [x["bias"] for x in mtf.values() if x["bias"] != "UNAVAILABLE"]
     bull_mtf = sum(x == "BULLISH" for x in available_mtf)
     bear_mtf = sum(x == "BEARISH" for x in available_mtf)
@@ -293,7 +294,7 @@ def analyze_binary_options(
     score = max(long_score, short_score)
     margin = abs(long_score - short_score)
     candidate = "CALL" if long_score > short_score else "PUT" if short_score > long_score else "NO_TRADE"
-    quality = _time_quality(bars, interval)
+    quality = _time_quality(bars, interval, as_of)
     blockers = []
     if quality["stale"]:
         blockers.append("STALE_CLOSED_CANDLES")
