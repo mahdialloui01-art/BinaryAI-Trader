@@ -459,7 +459,7 @@ class MainActivity : Activity() {
 
     private fun loadDerivContracts(selected: String) {
         val encoded = URLEncoder.encode(selected, "UTF-8")
-        request("/deriv/$encoded/contracts") { obj, error ->
+        request("/binary-options/$encoded/contracts") { obj, error ->
             if (obj != null) {
                 val contracts = obj.optJSONArray("available") ?: JSONArray()
                 val names = ArrayList<String>()
@@ -469,10 +469,10 @@ class MainActivity : Activity() {
                     if (label.isNotBlank()) names.add(label)
                 }
                 if (::status.isInitialized && names.isEmpty()) {
-                    status.text = "● $selected: Deriv لم يعرض عقود خيارات متاحة حالياً"
+                    status.text = "● $selected: لا توجد عقود Binary Options متاحة حالياً"
                     status.setTextColor(Color.rgb(255,194,91))
                 } else if (::status.isInitialized) {
-                    status.text = "● $selected: ${names.size} أنواع عقود خيارات متاحة على Deriv"
+                    status.text = "● $selected: ${names.size} أنواع Binary Options متاحة على Deriv"
                     status.setTextColor(mint)
                 }
             } else if (::status.isInitialized) {
