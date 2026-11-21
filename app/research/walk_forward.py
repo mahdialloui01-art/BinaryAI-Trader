@@ -83,8 +83,22 @@ def walk_forward_binary_options(
         else:
             i += 1
 
+    # Purge trades whose settlement candle crosses a chronological split boundary.
+    train_end = int(len(base) * 0.60)
+    validation_end = int(len(base) * 0.80)
+    kept_trades = []
+    purged_boundary_trades = 0
+    for trade in trades:
+        entry = trade["entry_index"]
+        settle = entry + expiry_bars - 1
+        boundary = train_end if entry < train_end else validation_end if entry < validation_end else len(base)
+        if settle >= boundary:
+            purged_boundary_trades += 1
+            continue
+        kept_trades.append(trade)
+
     evaluation = evaluate_binary_trades(
-        base, trades, payout=payout, stake=stake, initial_equity=initial_equity,
+        base, kept_trades, payout=payout, stake=stake, initial_equity=initial_equity,
         tie_rule="refund",
     )
     test = evaluation["chronological_splits"]["test"]
@@ -105,7 +119,7 @@ def walk_forward_binary_options(
         "parameters": {"payout": payout, "stake": stake, "expiry_bars": expiry_bars,
                        "minimum_confluence": 72, "initial_equity": initial_equity},
         "candles_used": len(base), "decisions": decisions,
-        "generated_trades": len(trades),
+        "generated_trades": len(kept_trades),\n        "purged_split_boundary_trades": purged_boundary_trades,
         "break_even_win_rate": round(break_even, 5),
         "overall": evaluation["overall"],
         "chronological_splits": evaluation["chronological_splits"],
