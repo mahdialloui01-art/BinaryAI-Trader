@@ -39,7 +39,14 @@ def test_engine_returns_full_explainable_research_report():
     assert {"trend_structure", "market_structure", "momentum", "liquidity_sweep",
             "multi_timeframe"}.issubset(result["modules"])
     assert "ema100" in result["indicators"]
-    assert result["engine_version"] == "2.0.0"
+    assert result["engine_version"] == "2.1.0"
+    forecasts = result["horizon_forecasts"]
+    assert set(forecasts) == {"1m", "2m", "5m"}
+    for key, minutes in (("1m", 1), ("2m", 2), ("5m", 5)):
+        assert forecasts[key]["horizon_minutes"] == minutes
+        assert forecasts[key]["decision"] in {"CALL", "PUT", "NO_TRADE"}
+        assert forecasts[key]["score"] <= 100
+        assert len(forecasts[key]["evidence"]) == 5
 
 
 def test_engine_fails_closed_with_insufficient_data():
