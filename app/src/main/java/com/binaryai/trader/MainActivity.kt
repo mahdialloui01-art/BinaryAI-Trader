@@ -386,7 +386,7 @@ class MainActivity : Activity() {
                 val wsRequest = Request.Builder().url(wsUrl).build()
                 tickSocket = streamClient.newWebSocket(wsRequest, object : WebSocketListener() {
                     override fun onOpen(webSocket: WebSocket, response: Response) {
-                        webSocket.send("{\"protocol\":\"json\",\"version\":1}" + "\u001e")
+                        webSocket.send("{\"protocol\":\"json\",\"version\":1}" + 30.toChar().toString())
                         runOnUiThread { if (::status.isInitialized) { status.text = "● WebSocket متصل — انتظار Tick"; status.setTextColor(mint) } }
                     }
                     override fun onMessage(webSocket: WebSocket, text: String) {
@@ -395,7 +395,7 @@ class MainActivity : Activity() {
                                 val packet = JSONObject(frame)
                                 if (!streamHandshakeDone && packet.length() == 0) {
                                     streamHandshakeDone = true
-                                    webSocket.send(JSONObject().put("type", 1).put("target", "Subscribe").put("arguments", JSONArray().put(JSONArray().put(safeSymbol()))).toString() + "\\u001e")
+                                    webSocket.send(JSONObject().put("type", 1).put("target", "Subscribe").put("arguments", JSONArray().put(JSONArray().put(safeSymbol()))).toString() + 30.toChar().toString())
                                 } else if (packet.optInt("type") == 1 && packet.optString("target") == "ReceiveTick") {
                                     val tick = packet.optJSONArray("arguments")?.optJSONObject(0) ?: return@forEach
                                     if (tick.optString("symbol").equals(safeSymbol(), true)) {
