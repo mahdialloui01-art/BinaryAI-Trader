@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-ENGINE_VERSION = "2.0.0"
+ENGINE_VERSION = "2.1.0"
 INTERVAL_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400}
 
 
@@ -201,6 +201,64 @@ def _timeframe_bias(rows: list[dict[str, Any]], interval: str, as_of: datetime |
     return {"bias": bias, "ema21": round(e21[-1], 8), "ema50": round(e50[-1], 8), "bars": len(bars), "quality": _time_quality(bars, interval, as_of)}
 
 
+
+def _directional_horizon_forecasts(
+    bars: list[dict[str, Any]],
+    interval: str,
+    higher_timeframes: dict[str, dict[str, Any]],
+    quality: dict[str, Any],
+) -> dict[str, Any]:
+    """Evidence-weighted outlooks for the next 1, 2 and 5 minutes; not probabilities."""
+    closes = [bar["close"] for bar in bars]
+    seconds = INTERVAL_SECONDS.get(interval, 60)
+    horizons = {}
+    ema_fast, ema_slow, ema_base = _ema(closes, 9), _ema(closes, 21), _ema(closes, 50)
+    atr_values = _wilder(_true_ranges(bars), 14)
+    atr = atr_values[-1] if atr_values and atr_values[-1] == atr_values[-1] else 0.0
+    structure = _market_structure(bars)
+    candle = _candle_context(bars)
+    for minutes in (1, 2, 5):
+        lookback = max(2, min(len(bars) - 2, round(minutes * 60 / seconds)))
+        momentum_window = max(3, min(len(bars) - 2, lookback * 3))
+        price = closes[-1]
+        momentum = price - closes[-1 - momentum_window]
+        normalized_momentum = momentum / max(atr * (momentum_window ** 0.5), 1e-12)
+        ema_slope = ema_fast[-1] - ema_fast[max(0, len(ema_fast) - 1 - lookback)]
+        trend = "CALL" if ema_fast[-1] > ema_slow[-1] and ema_slow[-1] >= ema_base[-1] and ema_slope > 0 else "PUT" if ema_fast[-1] < ema_slow[-1] and ema_slow[-1] <= ema_base[-1] and ema_slope < 0 else None
+        momentum_dir = "CALL" if normalized_momentum > 0.10 else "PUT" if normalized_momentum < -0.10 else None
+        structure_dir = "CALL" if structure["structure"] == "BULLISH" or structure["bos"] == "BULLISH" else "PUT" if structure["structure"] == "BEARISH" or structure["bos"] == "BEARISH" else None
+        candle_dir = "CALL" if candle["bullish"] else "PUT" if candle["bearish"] else None
+        mtf_biases = [item.get("bias") for item in higher_timeframes.values() if item.get("bias") in ("BULLISH", "BEARISH")]
+        mtf_dir = "CALL" if len(mtf_biases) >= 2 and all(x == "BULLISH" for x in mtf_biases) else "PUT" if len(mtf_biases) >= 2 and all(x == "BEARISH" for x in mtf_biases) else None
+        votes = [
+            ("trend", trend, 30, "اتجاه EMA 9/21/50 وميل المتوسط السريع"),
+            ("momentum", momentum_dir, 25, f"الزخم المعياري عبر {momentum_window} شموع"),
+            ("structure", structure_dir, 20, f"بنية السوق {structure['structure']} / BOS {structure['bos'] or 'غير مؤكد'}"),
+            ("candle", candle_dir, 10, f"سلوك آخر شمعة: {candle['pattern']}"),
+            ("higher_timeframes", mtf_dir, 15, "توافق الأطر الأعلى" if mtf_dir else "الأطر الأعلى غير متوافقة بالكامل"),
+        ]
+        long_points = sum(weight for _, direction, weight, _ in votes if direction == "CALL")
+        short_points = sum(weight for _, direction, weight, _ in votes if direction == "PUT")
+        score, margin = max(long_points, short_points), abs(long_points - short_points)
+        candidate = "CALL" if long_points > short_points else "PUT" if short_points > long_points else "NO_TRADE"
+        blockers = []
+        if quality.get("stale"): blockers.append("STALE_CLOSED_CANDLES")
+        if quality.get("gap_ratio", 0) > 0.08: blockers.append("EXCESSIVE_CANDLE_GAPS")
+        if atr <= 0: blockers.append("ATR_UNAVAILABLE")
+        if score < 55: blockers.append("WEAK_HORIZON_CONFLUENCE")
+        if margin < 20: blockers.append("HORIZON_DIRECTION_CONFLICT")
+        if trend and momentum_dir and trend != momentum_dir: blockers.append("TREND_MOMENTUM_CONFLICT")
+        decision = candidate if not blockers else "NO_TRADE"
+        horizons[f"{minutes}m"] = {
+            "horizon_minutes": minutes, "forecast_window": f"next_{minutes}_minutes",
+            "decision": decision, "candidate": candidate, "score": score,
+            "long_score": long_points, "short_score": short_points, "directional_margin": margin,
+            "evidence": [{"module": name, "direction": direction or "NEUTRAL", "weight": weight if direction else 0, "detail": detail} for name, direction, weight, detail in votes],
+            "blockers": blockers, "note": "درجة توافق الأدلة وليست احتمال نجاح أو ضماناً لاتجاه السعر.",
+        }
+    return horizons
+
+
 def analyze_binary_options(
     candles: list[dict[str, Any]],
     symbol: str,
@@ -360,6 +418,7 @@ def analyze_binary_options(
                       "reference_high": round(prior_high, 8), "reference_low": round(prior_low, 8)},
         "fair_value_gap": fvg,
         "higher_timeframes": mtf, "mtf_consensus": mtf_consensus,
+        "horizon_forecasts": _directional_horizon_forecasts(bars, interval, mtf, quality),
         "modules": modules, "rationale": reasons, "blockers": blockers,
         "expiry_research": {"recommended_bars": expiry_bars, "seconds": expiry_bars * seconds,
                             "tested_alternatives_bars": expiry_candidates,
