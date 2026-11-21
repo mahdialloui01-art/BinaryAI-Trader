@@ -42,7 +42,7 @@ async def research_evaluate(request: ResearchEvaluationRequest):
 
 
 def data_service():
-    # BiQuote is the default reference adapter. OTCharts is optional and never
+    # Deriv is the primary public reference adapter. OTCharts remains optional and never
     # required for the free-first core.
     return MarketDataService(os.getenv("OTCHARTS_API_KEY") or None)
 
@@ -156,7 +156,7 @@ async def market_quality(
         if duplicate_count: flags.append("DUPLICATE_TIMESTAMPS")
         if invalid_ohlc: flags.append("INVALID_OHLC")
         return {
-            "provider": "biquote",
+            "provider": "deriv",
             "symbol": symbol.upper(),
             "interval": interval,
             "market_kind": classify_market(symbol),
@@ -308,14 +308,14 @@ async def collect_candles(
     """Fetch from the free-first reference feed and persist a local historical batch."""
     try:
         candles = await data_service().reference_candles(symbol.upper(), interval, limit)
-        result = CandleStore().upsert("biquote", symbol.upper(), interval, candles)
+        result = CandleStore().upsert("deriv", symbol.upper(), interval, candles)
         return {
             "provider": "biquote",
             "symbol": symbol.upper(),
             "interval": interval,
             "received": len(candles),
             **result,
-            "database_total": CandleStore().count("biquote"),
+            "database_total": CandleStore().count("deriv"),
             "note": "Local SQLite cache; on ephemeral hosting it resets on redeploy unless a persistent disk is attached.",
         }
     except Exception as exc:
@@ -349,7 +349,7 @@ async def historical_candles(
 @app.get("/history/stats")
 async def history_stats():
     store = CandleStore()
-    return {"stored_candles": store.count(), "deriv_candles": store.count("deriv"), "legacy_biquote_candles": store.count("deriv")}
+    return {"stored_candles": store.count(), "deriv_candles": store.count("deriv"), "legacy_biquote_candles": store.count("biquote")}
 
 
 @app.get("/signals/example", response_model=SignalDecision)
