@@ -42,6 +42,8 @@ class MainActivity : Activity() {
     private var streamSubscribed = false
     private var lastStreamTickAt = 0L
     private var streamReconnectPending = false
+    private var streamNegotiating = false
+    private var lastSubscriptionState = "unknown"
     private val streamReconnect = object : Runnable { override fun run() { streamReconnectPending = false; startTickStream() } }
     private var lastQualityPoll = 0L
     private val liveLoop = object : Runnable {
@@ -365,7 +367,8 @@ class MainActivity : Activity() {
     }
 
     private fun startTickStream() {
-        if (!::symbol.isInitialized || base.text.isBlank() || tickSocket != null) return
+        if (!::symbol.isInitialized || base.text.isBlank() || tickSocket != null || streamNegotiating) return
+        streamNegotiating = true
         streamHandshakeDone = false
         streamConnected = false
         streamSubscribed = false
@@ -377,10 +380,12 @@ class MainActivity : Activity() {
             .build()
         streamClient.newCall(negotiate).enqueue(object : Callback {
             override fun onFailure(call: Call, e: java.io.IOException) {
+                streamNegotiating = false
                 runOnUiThread { if (::status.isInitialized) { status.text = "● فشل تفاوض SignalR: ${e.message}"; status.setTextColor(red) } }
                 scheduleStreamReconnect()
             }
             override fun onResponse(call: Call, response: Response) {
+                streamNegotiating = false
                 val body = response.body?.string().orEmpty()
                 if (!response.isSuccessful) {
                     runOnUiThread { if (::status.isInitialized) { status.text = "● تفاوض SignalR فشل HTTP ${response.code}"; status.setTextColor(red) } }
@@ -406,24 +411,35 @@ class MainActivity : Activity() {
                                 if (!streamHandshakeDone && packet.length() == 0) {
                                     streamHandshakeDone = true
                                     val subscribe = JSONObject().put("type", 1).put("invocationId", "1")
-                                        .put("target", "Subscribe").put("arguments", JSONArray().put(JSONArray().put(safeSymbol())))
+                                        .put("target", "Subscribe").put("arguments", JSONArray().put(JSONArray().put(providerSymbol())))
                                     webSocket.send(subscribe.toString() + 30.toChar().toString())
                                     val latest = JSONObject().put("type", 1).put("invocationId", "2")
-                                        .put("target", "GetLatestTick").put("arguments", JSONArray().put(safeSymbol()))
+                                        .put("target", "GetLatestTick").put("arguments", JSONArray().put(providerSymbol()))
                                     webSocket.send(latest.toString() + 30.toChar().toString())
                                     streamSubscribed = true
-                                    runOnUiThread { if (::status.isInitialized) { status.text = "● تم طلب الاشتراك في ${safeSymbol()} — انتظار أول Tick"; status.setTextColor(Color.rgb(255,194,91)) } }
+                                    runOnUiThread { if (::status.isInitialized) { status.text = "● تم طلب الاشتراك في ${providerSymbol()} — انتظار أول Tick"; status.setTextColor(Color.rgb(255,194,91)) } }
                                 } else {
                                     val target = packet.optString("target")
                                     if (packet.optInt("type") == 1 && target == "ReceiveTick") {
                                         val args = packet.optJSONArray("arguments")
                                         val tick = args?.optJSONObject(0) ?: args?.optJSONArray(0)?.optJSONObject(0)
-                                        if (tick != null && tick.optString("symbol").equals(safeSymbol(), true)) applyStreamTick(tick)
+                                        if (tick != null && (tick.optString("symbol").isBlank() || tick.optString("symbol").equals(providerSymbol(), true))) applyStreamTick(tick)
                                     } else if (packet.optInt("type") == 1 && target == "ReceiveSubscriptionState") {
                                         val args = packet.optJSONArray("arguments")
                                         val state = args?.optJSONObject(0) ?: args?.optJSONArray(0)?.optJSONObject(0)
-                                        val marketState = state?.optString("marketState")?.takeIf { it.isNotBlank() } ?: state?.optString("state") ?: "unknown"
-                                        runOnUiThread { if (::status.isInitialized && lastStreamTickAt == 0L) { status.text = "● الاشتراك فعّال — حالة السوق: $marketState"; status.setTextColor(Color.rgb(255,194,91)) } }
+                                        val marketState = state?.optString("marketState")?.takeIf { it.isNotBlank() }
+                                            ?: state?.optString("state")?.takeIf { it.isNotBlank() } ?: "unknown"
+                                        lastSubscriptionState = marketState.lowercase()
+                                        runOnUiThread {
+                                            if (::status.isInitialized && lastStreamTickAt == 0L) {
+                                                status.text = if (lastSubscriptionState.contains("closed")) {
+                                                    "● السوق مغلق لدى مزوّد MT5 — لا توجد Tick حيّة الآن (${providerSymbol()})"
+                                                } else {
+                                                    "● الاشتراك في ${providerSymbol()} — حالة السوق: $marketState — انتظار Tick"
+                                                }
+                                                status.setTextColor(Color.rgb(255,194,91))
+                                            }
+                                        }
                                     } else if (packet.optInt("type") == 3) {
                                         val error = packet.optString("error")
                                         if (error.isNotBlank()) runOnUiThread { if (::status.isInitialized) { status.text = "● رفض الخادم الطلب: $error"; status.setTextColor(red) } }
@@ -464,14 +480,14 @@ class MainActivity : Activity() {
             }
         if (mid == null) return
         lastStreamTickAt = System.currentTimeMillis()
-        val normalized = JSONObject().put("provider", "biquote").put("symbol", tick.optString("symbol", safeSymbol()))
+        val normalized = JSONObject().put("provider", "biquote").put("symbol", safeSymbol())
             .put("bid", tick.opt("bid") ?: JSONObject.NULL).put("ask", tick.opt("ask") ?: JSONObject.NULL)
             .put("mid", mid).put("timestamp", tick.opt("timestamp") ?: tick.opt("time") ?: JSONObject.NULL)
             .put("stale", false).put("stream", "signalr_websocket")
         runOnUiThread {
             lastTick = normalized
             if (::marketText.isInitialized && activePage == "home") renderTick()
-            if (::status.isInitialized) { status.text = "● بث حي فعلي — ${safeSymbol()} — وصل Tick الآن"; status.setTextColor(mint) }
+            if (::status.isInitialized) { status.text = "● وصل Tick حقيقي من ${providerSymbol()} — ${safeSymbol()}"; status.setTextColor(mint) }
             updateLiveCandle(mid, normalized.optString("timestamp", ""))
         }
     }
@@ -615,6 +631,11 @@ class MainActivity : Activity() {
     }
 
     private fun safeSymbol() = symbol.text.toString().trim().uppercase().ifBlank { "EURUSD" }
+    private fun providerSymbol(): String = when (safeSymbol()) {
+        "GOLD", "GOLDUSD" -> "XAUUSD"
+        "SILVER", "SILVERUSD" -> "XAGUSD"
+        else -> safeSymbol()
+    }
     private fun encodedSymbol() = URLEncoder.encode(safeSymbol(), "UTF-8")
     private fun display(v: Any?): String = if (v == null || v == JSONObject.NULL) "--" else v.toString()
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
