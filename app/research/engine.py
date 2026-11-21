@@ -198,7 +198,7 @@ def _timeframe_bias(rows: list[dict[str, Any]], interval: str, as_of: datetime |
     e21, e50 = _ema(closes, 21), _ema(closes, 50)
     slope = e21[-1] - e21[-5]
     bias = "BULLISH" if e21[-1] > e50[-1] and slope > 0 else "BEARISH" if e21[-1] < e50[-1] and slope < 0 else "NEUTRAL"
-    return {"bias": bias, "ema21": round(e21[-1], 8), "ema50": round(e50[-1], 8), "bars": len(bars), "quality": _time_quality(bars, interval)}
+    return {"bias": bias, "ema21": round(e21[-1], 8), "ema50": round(e50[-1], 8), "bars": len(bars), "quality": _time_quality(bars, interval, as_of)}
 
 
 def analyze_binary_options(
@@ -206,6 +206,7 @@ def analyze_binary_options(
     symbol: str,
     interval: str = "1m",
     higher_timeframes: dict[str, list[dict[str, Any]]] | None = None,
+    as_of: datetime | None = None,
 ) -> dict[str, Any]:
     """Multi-factor, closed-candle binary-options research. Score is confluence, never win probability."""
     bars = _valid_candles(candles)
