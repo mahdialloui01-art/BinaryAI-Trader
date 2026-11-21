@@ -22,7 +22,10 @@ def parse_timestamp(value: Any) -> datetime | None:
     if isinstance(value, (int, float)):
         # Accept seconds or milliseconds since epoch.
         stamp = value / 1000 if value > 10_000_000_000 else value
-        return datetime.fromtimestamp(stamp, tz=timezone.utc)
+        try:
+            return datetime.fromtimestamp(stamp, tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
     if isinstance(value, str):
         normalized = value.replace("Z", "+00:00")
         try:
@@ -33,12 +36,18 @@ def parse_timestamp(value: Any) -> datetime | None:
     return None
 
 
+def candle_timestamp(row: dict[str, Any]) -> datetime | None:
+    """Read provider candle open-time fields without silently dropping valid bars."""
+    value = row.get("timestamp", row.get("openTime", row.get("time", row.get("time_utc"))))
+    return parse_timestamp(value)
+
+
 def align_candles(left: list[dict], right: list[dict], tolerance: float = 0.0) -> dict:
     """Compare only candles with matching UTC open-time; never compare unmatched bars."""
     def index(rows):
         output = {}
         for row in rows:
-            stamp = parse_timestamp(row.get("timestamp", row.get("time", row.get("time_utc"))))
+            stamp = candle_timestamp(row)
             if stamp is not None:
                 output[stamp.isoformat()] = row
         return output
