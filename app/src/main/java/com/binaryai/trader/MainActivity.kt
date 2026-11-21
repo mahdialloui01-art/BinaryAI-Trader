@@ -164,9 +164,11 @@ class MainActivity : Activity() {
         addSection(page, "لوحة السوق")
         val settings = card()
         settings.addView(label("رابط خادم BinaryAI", 11f))
+        (base.parent as? android.view.ViewGroup)?.removeView(base)
         settings.addView(base, LinearLayout.LayoutParams(-1, dp(48)))
         addGap(settings, 8)
         settings.addView(label("الأصل المختار", 11f))
+        (symbol.parent as? android.view.ViewGroup)?.removeView(symbol)
         settings.addView(symbol, LinearLayout.LayoutParams(-1, dp(48)))
         addGap(settings, 8)
         settings.addView(actionButton("حفظ الإعدادات والاتصال") { 
