@@ -28,6 +28,16 @@ class MarketDataService:
     async def reference_symbols(self):
         return await self.reference.symbols()
 
+    async def quotex_symbols(self):
+        if not self.quotex:
+            raise RuntimeError("Optional OTCharts feed is disabled; set OTCHARTS_API_KEY on the server")
+        return await self.quotex.symbols("quotex")
+
+    async def open_quotex_stream(self, symbols: list[str]):
+        if not self.quotex:
+            raise RuntimeError("Optional OTCharts feed is disabled; set OTCHARTS_API_KEY on the server")
+        return await self.quotex.open_stream(symbols, "quotex")
+
     async def quotex_candles(self, symbol: str, timeframe_seconds: int = 60,
                              limit: int = 300):
         if not self.quotex:
