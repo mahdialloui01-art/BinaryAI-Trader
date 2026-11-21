@@ -1,7 +1,8 @@
 import os
+from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Query
 from app.feeds.service import MarketDataService
-from app.feeds.normalization import align_candles, classify_market
+from app.feeds.normalization import align_candles, classify_market, parse_timestamp
 from app.models import SignalDecision
 from app.storage import CandleStore
 
@@ -102,6 +103,74 @@ async def market_candles(
         }
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Reference candle error: {exc}") from exc
+
+
+@app.get("/market/{symbol}/quality")
+async def market_quality(
+    symbol: str,
+    interval: str = Query(default="1m", pattern="^(1m|5m|15m|30m|1h|4h|1d)$"),
+    limit: int = Query(default=100, ge=10, le=500),
+):
+    """Read-only feed diagnostics: age, gaps, duplicates and OHLC integrity."""
+    seconds = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800,
+               "1h": 3600, "4h": 14400, "1d": 86400}[interval]
+    try:
+        service = data_service()
+        tick, candles = await __import__("asyncio").gather(
+            service.reference_tick(symbol.upper()),
+            service.reference_candles(symbol.upper(), interval, limit),
+        )
+        now = datetime.now(timezone.utc)
+        tick_time = parse_timestamp(tick.get("timestamp"))
+        tick_age = max(0.0, (now - tick_time).total_seconds()) if tick_time else None
+        stamps = []
+        invalid_ohlc = 0
+        for candle in candles:
+            stamp = parse_timestamp(candle.get("timestamp", candle.get("time", candle.get("time_utc"))))
+            if stamp:
+                stamps.append(stamp)
+            try:
+                o, h, low, c = (float(candle[k]) for k in ("open", "high", "low", "close"))
+                if h < max(o, c, low) or low > min(o, c, h):
+                    invalid_ohlc += 1
+            except (KeyError, TypeError, ValueError):
+                invalid_ohlc += 1
+        unique = sorted(set(stamps))
+        duplicate_count = len(stamps) - len(unique)
+        gaps = 0
+        if len(unique) > 1:
+            for left, right in zip(unique, unique[1:]):
+                delta = (right - left).total_seconds()
+                if delta > seconds * 1.5:
+                    gaps += max(1, round(delta / seconds) - 1)
+        latest_age = max(0.0, (now - unique[-1]).total_seconds()) if unique else None
+        tick_stale = tick_age is None or tick_age > max(30, seconds * 2)
+        candle_stale = latest_age is None or latest_age > max(180, seconds * 2)
+        flags = []
+        if tick_stale: flags.append("TICK_STALE_OR_UNTIMED")
+        if candle_stale: flags.append("CANDLE_STALE_OR_UNTIMED")
+        if gaps: flags.append("CANDLE_GAPS")
+        if duplicate_count: flags.append("DUPLICATE_TIMESTAMPS")
+        if invalid_ohlc: flags.append("INVALID_OHLC")
+        return {
+            "provider": "biquote",
+            "symbol": symbol.upper(),
+            "interval": interval,
+            "market_kind": classify_market(symbol),
+            "checked_at": now.isoformat(),
+            "tick_age_seconds": round(tick_age, 2) if tick_age is not None else None,
+            "latest_candle_age_seconds": round(latest_age, 2) if latest_age is not None else None,
+            "candles_received": len(candles),
+            "timestamped_candles": len(stamps),
+            "duplicate_timestamps": duplicate_count,
+            "estimated_missing_bars": gaps,
+            "invalid_ohlc_bars": invalid_ohlc,
+            "status": "stale" if tick_stale or candle_stale else ("degraded" if flags else "healthy"),
+            "flags": flags,
+            "note": "Freshness is measured against UTC timestamps; a healthy reference feed is not proof of broker price parity.",
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Feed quality check failed: {exc}") from exc
 
 
 @app.get("/quotex/{symbol}/candles")
