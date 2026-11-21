@@ -192,9 +192,9 @@ async def deriv_stream(symbol: str = Query(..., min_length=2, max_length=30, pat
         try:
             yield "event: status\ndata: " + __import__("json").dumps({"status":"connecting","provider":"deriv","symbol":symbol}) + "\n\n"
             async for tick in data_service().stream_reference_ticks(symbol):
-                yield "event: tick\\ndata: " + __import__("json").dumps(tick) + "\n\n"
+                yield "event: tick\ndata: " + __import__("json").dumps(tick) + "\n\n"
         except Exception as exc:
-            yield "event: error\ndata: " + __import__("json").dumps({"provider":"deriv","symbol":symbol,"error":str(exc)}) + "\\n\\n"
+            yield "event: error\ndata: " + __import__("json").dumps({"provider":"deriv","symbol":symbol,"error":str(exc)}) + "\n\n"
     return StreamingResponse(relay(), media_type="text/event-stream", headers={
         "Cache-Control":"no-cache, no-transform", "Connection":"keep-alive", "X-Accel-Buffering":"no"
     })
