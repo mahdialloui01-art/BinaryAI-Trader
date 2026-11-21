@@ -11,6 +11,7 @@ from app.storage import CandleStore
 
 from pydantic import BaseModel, Field
 from app.research.backtest import evaluate_binary_trades
+from app.research.engine import analyze_binary_options
 
 class ResearchEvaluationRequest(BaseModel):
     candles: list[dict] = Field(min_length=2, max_length=20000)
@@ -392,6 +393,42 @@ async def historical_candles(
 async def history_stats():
     store = CandleStore()
     return {"stored_candles": store.count(), "deriv_candles": store.count("deriv"), "legacy_biquote_candles": store.count("biquote")}
+
+
+@app.get("/analysis/{symbol}")
+async def binary_analysis(
+    symbol: str = Path(..., min_length=2, max_length=30, pattern="^[A-Za-z0-9_]+$"),
+    interval: str = Query(default="1m", pattern="^(1m|5m|15m)$"),
+    limit: int = Query(default=250, ge=80, le=500),
+):
+    """Generate an explainable CALL/PUT/NO_TRADE research analysis from closed Deriv candles."""
+    import asyncio
+    from datetime import timedelta
+    seconds = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400}
+    higher_map = {"1m": ["5m", "15m"], "5m": ["15m", "1h"], "15m": ["1h", "4h"]}
+    service = data_service()
+    try:
+        frames = [interval, *higher_map[interval]]
+        results = await asyncio.gather(*[
+            service.reference_candles(symbol.upper(), tf, limit if tf == interval else 120)
+            for tf in frames
+        ])
+        now = datetime.now(timezone.utc)
+
+        def closed(rows, tf):
+            duration = timedelta(seconds=seconds[tf])
+            output = []
+            for row in rows:
+                stamp = candle_timestamp(row)
+                if stamp is not None and stamp + duration <= now:
+                    output.append(row)
+            return output
+
+        base = closed(results[0], interval)
+        higher = {tf: closed(rows, tf) for tf, rows in zip(frames[1:], results[1:])}
+        return analyze_binary_options(base, symbol.upper(), interval, higher)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Binary analysis failed: {exc}") from exc
 
 
 @app.get("/signals/example", response_model=SignalDecision)
