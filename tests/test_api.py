@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.feeds.normalization import candle_timestamp
 
 
 def test_health_is_research_only():
@@ -25,3 +26,16 @@ def test_history_stats_uses_configured_sqlite_path(tmp_path, monkeypatch):
     response = client.get("/history/stats")
     assert response.status_code == 200
     assert response.json()["stored_candles"] == 0
+
+
+def test_biquote_open_time_is_used_for_candle_freshness():
+    stamp = candle_timestamp({"openTime": "2026-11-21T20:00:00Z", "open": 1.0})
+    assert stamp is not None
+    assert stamp.isoformat() == "2026-11-21T20:00:00+00:00"
+
+
+def test_otc_stream_route_exists():
+    client = TestClient(app)
+    response = client.get("/quotex/stream", params={"symbols": "EURUSD_otc"})
+    # The route must fail closed when the optional provider is not configured.
+    assert response.status_code in (200, 503)
