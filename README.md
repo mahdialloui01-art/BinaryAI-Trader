@@ -17,7 +17,7 @@ Independent binary-options research and signal-analysis platform. This repositor
 - Signal research only: CALL / PUT / NO_TRADE.
 - Local SQLite historical candle cache with upsert/deduplication.
 - Collection and replay endpoints for stored reference candles.
-- Historical and forward testing before any strategy is considered usable.
+- Expiry-aware CALL/PUT backtest evaluator with tie handling, payout P&L, losing streaks, drawdown and chronological splits.
 
 ## Important integration limits
 Quotex does not provide a generally documented public developer API for arbitrary third-party automated trading. This project will not use browser automation, reverse-engineered private endpoints, credential harvesting, or account-session scraping. OTCharts is independent of Quotex and is not an official Quotex API. OTC instruments must be identified and tested separately from real-market instruments.
@@ -46,7 +46,24 @@ API docs: http://127.0.0.1:8000/docs
 - `POST /collect/{symbol}/candles?interval=1m&limit=300` — fetch and store a candle batch.
 - `GET /history/{symbol}/candles?provider=biquote&interval=1m` — replay locally stored candles.
 - `GET /history/stats` — local cache counts.
+- `POST /research/evaluate` — evaluate supplied historical CALL/PUT entries against OHLC candles; returns win/loss/tie counts, payout-adjusted P&L, expectancy, losing streak, drawdown and train/validation/test summaries.
 - `GET /signals/example` — explicit NO_TRADE placeholder until a strategy passes validation.
+
+### Research evaluator input
+Send chronological candles and a separate list of explicit trade entries. `entry_index` identifies the candle whose OPEN is used as entry; `expiry_bars=1` settles at that candle's CLOSE. Example:
+```json
+{
+  "candles": [
+    {"timestamp":"2026-01-01T00:00:00Z","open":1.10,"high":1.12,"low":1.09,"close":1.11},
+    {"timestamp":"2026-01-01T00:01:00Z","open":1.11,"high":1.13,"low":1.10,"close":1.12}
+  ],
+  "trades": [{"direction":"CALL","entry_index":0,"expiry_bars":1}],
+  "payout": 0.80,
+  "stake": 1.0,
+  "tie_rule": "refund"
+}
+```
+The evaluator measures entries supplied by the caller; it does **not** create signals or prove a strategy has an edge. The chronological split is based on candle index, and forward validation still requires genuinely unseen data.
 
 ## Validation roadmap
 1. Verify API payloads against live provider responses.
