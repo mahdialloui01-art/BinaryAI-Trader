@@ -3,10 +3,10 @@
 Independent binary-options research and signal-analysis platform. This repository is separate from GoldAI Trader.
 
 ## Free-first policy
-- The core uses the public, read-only BiQuote REST endpoints and does not require an API key according to its published interface.
-- BiQuote is a reference feed, not a guaranteed mirror of Quotex or any broker. Current symbol coverage and streaming availability must be checked at runtime.
-- OTCharts is an optional third-party read-only adapter. It requires its own key; free-tier limits and live-stream availability can change. The core does not depend on it.
-- No paid data plan is enabled or assumed. A missing optional feed must never silently block the free reference feed.
+- The primary feed is Deriv's public, read-only WebSocket market-data endpoint; no account token or API key is needed for public symbols, ticks, and historical candles.
+- Deriv prices are Deriv prices, not Quotex OTC prices and not a guarantee of matching any other broker.
+- The adapter exposes the active-symbol catalogue, tick streaming, OHLC history, and available contract types for an underlying symbol.
+- No trade execution, account login, proposal purchase, or live order is enabled. The app remains analysis-only.
 - Store/replay historical data where permitted to reduce repeated requests.
 
 ## Current scope
@@ -20,7 +20,7 @@ Independent binary-options research and signal-analysis platform. This repositor
 - Expiry-aware CALL/PUT backtest evaluator with tie handling, payout P&L, losing streaks, drawdown and chronological splits.
 
 ## Important integration limits
-Quotex does not provide a generally documented public developer API for arbitrary third-party automated trading. This project will not use browser automation, reverse-engineered private endpoints, credential harvesting, or account-session scraping. OTCharts is independent of Quotex and is not an official Quotex API. OTC instruments must be identified and tested separately from real-market instruments.
+Deriv's public market-data WebSocket is unauthenticated and read-only. It does not grant access to account-scoped trading actions. This project will not request account tokens or place trades. Deriv synthetic indices are generated instruments and must not be described as Quotex OTC or real-market Forex.
 
 This project does not place trades. Signals are research outputs, not guarantees of profit. Live execution remains disabled.
 
@@ -38,14 +38,16 @@ API docs: http://127.0.0.1:8000/docs
 
 ## Main endpoints
 - `GET /health` — service and provider configuration (not a live feed probe).
-- `GET /symbols` — BiQuote reference catalogue.
-- `GET /market/{symbol}/tick` — reference tick.
-- `GET /market/{symbol}/candles?interval=1m&limit=300` — reference OHLC.
+- `GET /symbols` — Deriv active-symbol catalogue.
+- `GET /market/{symbol}/tick` — latest Deriv tick.
+- `GET /market/{symbol}/candles?interval=1m&limit=300` — Deriv OHLC history.
 - `GET /market/{symbol}/quality?interval=1m&limit=100` — tick/candle age, timestamp gaps, duplicates and OHLC integrity diagnostics.
+- `GET /deriv/{symbol}/contracts` — contract types Deriv lists for the selected underlying.
+- `GET /deriv/stream?symbol=frxEURUSD` — public live tick stream as server-sent events.
 - `GET /quotex/{symbol}/candles` — optional OTCharts read-only candles.
 - `GET /compare/{symbol}/candles` — timestamp-aligned diagnostics when OTCharts is configured.
 - `POST /collect/{symbol}/candles?interval=1m&limit=300` — fetch and store a candle batch.
-- `GET /history/{symbol}/candles?provider=biquote&interval=1m` — replay locally stored candles.
+- `GET /history/{symbol}/candles?provider=deriv&interval=1m` — replay locally stored candles.
 - `GET /history/stats` — local cache counts.
 - `POST /research/evaluate` — evaluate supplied historical CALL/PUT entries against OHLC candles; returns win/loss/tie counts, payout-adjusted P&L, expectancy, losing streak, drawdown and train/validation/test summaries.
 - `GET /signals/example` — explicit NO_TRADE placeholder until a strategy passes validation.
@@ -67,7 +69,7 @@ Send chronological candles and a separate list of explicit trade entries. `entry
 The evaluator measures entries supplied by the caller; it does **not** create signals or prove a strategy has an edge. The chronological split is based on candle index, and forward validation still requires genuinely unseen data.
 
 ## Android client
-The Android 0.2.0 client includes a dashboard, selectable symbol catalogue, 1-minute candlestick chart, reference-price panel, feed-quality diagnostics, historical cache controls, and a strategy-research status page. The app requires the HTTPS URL of a deployed BinaryAI API.
+The Android 0.4.0 client includes a dashboard, selectable symbol catalogue, 1-minute candlestick chart, reference-price panel, feed-quality diagnostics, historical cache controls, and a strategy-research status page. The app requires the HTTPS URL of a deployed BinaryAI API.
 
 ## Validation roadmap
 1. Verify API payloads against live provider responses.
