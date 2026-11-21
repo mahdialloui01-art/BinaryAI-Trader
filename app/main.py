@@ -410,12 +410,13 @@ async def binary_analysis(
     service = data_service()
     try:
         frames = [interval, *higher_map[interval]]
-        contract_check, results = await asyncio.gather(
+        contract_check, results, live_tick = await asyncio.gather(
             service.reference.binary_contracts_for(symbol.upper()),
             asyncio.gather(*[
                 service.reference_candles(symbol.upper(), tf, limit if tf == interval else 120)
                 for tf in frames
             ]),
+            service.reference_tick(symbol.upper()),
         )
         if not contract_check.get("binary_options_available"):
             return {
@@ -443,6 +444,76 @@ async def binary_analysis(
         report = analyze_binary_options(base, symbol.upper(), interval, higher)
         report["binary_contracts_available"] = len(contract_check.get("available", []))
         report["binary_options_available"] = True
+
+        # A timed entry is issued only after a fresh live tick confirms the closed-candle bias.
+        # This is a research timing guide; it never places a Deriv contract.
+        from zoneinfo import ZoneInfo
+        from datetime import timedelta
+        tick_time = parse_timestamp(live_tick.get("timestamp"))
+        tick_price = live_tick.get("price")
+        tick_age = (now - tick_time).total_seconds() if tick_time else None
+        tick_fresh = tick_age is not None and -1 <= tick_age <= 10 and tick_price is not None and bool(base)
+        reference_close = float(base[-1]["close"]) if base else None
+        try:
+            tick_price = float(tick_price) if tick_price is not None else None
+        except (TypeError, ValueError):
+            tick_price = None
+        tick_fresh = tick_fresh and tick_price is not None and reference_close is not None
+        local_tz = ZoneInfo("Africa/Algiers")
+        timing_now = datetime.now(timezone.utc)
+        horizons = report.get("horizon_forecasts", {})
+        for key, minutes in (("1m", 1), ("2m", 2), ("5m", 5)):
+            item = horizons.get(key)
+            if not item:
+                continue
+            direction = item.get("decision")
+            tick_confirms = (
+                tick_fresh and (
+                    (direction == "CALL" and tick_price > reference_close) or
+                    (direction == "PUT" and tick_price < reference_close)
+                )
+            )
+            blockers = item.setdefault("blockers", [])
+            if not tick_fresh:
+                blockers.append("LIVE_TICK_STALE_OR_UNAVAILABLE")
+            elif direction in ("CALL", "PUT") and not tick_confirms:
+                blockers.append("LIVE_TICK_DID_NOT_CONFIRM_DIRECTION")
+            if direction not in ("CALL", "PUT") or not tick_confirms or blockers:
+                item["decision"] = "NO_TRADE"
+                item["entry_status"] = "CANCELLED_OR_WAITING"
+                item["entry_time_utc"] = None
+                item["entry_time_algeria"] = None
+                item["expiry_time_utc"] = None
+                item["expiry_time_algeria"] = None
+                item["entry_countdown_seconds"] = None
+                item["expiry_countdown_seconds"] = None
+                item["duration_seconds"] = minutes * 60
+                item["recommendation_valid_until_utc"] = None
+            else:
+                entry_at = max(timing_now, tick_time)
+                expiry_at = entry_at + timedelta(seconds=minutes * 60)
+                valid_until = entry_at + timedelta(seconds=5)
+                item["entry_status"] = "LIVE_TICK_CONFIRMED"
+                item["entry_time_utc"] = entry_at.isoformat()
+                item["entry_time_algeria"] = entry_at.astimezone(local_tz).isoformat()
+                item["expiry_time_utc"] = expiry_at.isoformat()
+                item["expiry_time_algeria"] = expiry_at.astimezone(local_tz).isoformat()
+                item["duration_seconds"] = minutes * 60
+                item["recommendation_valid_until_utc"] = valid_until.isoformat()
+                item["entry_countdown_seconds"] = max(0, round((entry_at - timing_now).total_seconds(), 1))
+                item["expiry_countdown_seconds"] = minutes * 60
+                item["entry_tick_price"] = tick_price
+                item["reference_closed_price"] = reference_close
+                item["timing_note"] = "وقت الدخول مبني على تأكيد آخر tick من Deriv؛ أعد التحليل إذا تجاوزت صلاحية الإشارة 5 ثوانٍ."
+        report["timing"] = {
+            "timezone": "Africa/Algiers",
+            "live_tick_age_seconds": round(tick_age, 2) if tick_age is not None else None,
+            "live_tick_confirmed": tick_fresh,
+            "live_tick_price": tick_price,
+            "reference_closed_price": reference_close,
+            "entry_validity_seconds": 5,
+            "note": "العدادات المعروضة تُحسب من وقت استجابة الخادم؛ لا يتم تنفيذ أي عقد تلقائياً.",
+        }
         return report
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Binary analysis failed: {exc}") from exc
