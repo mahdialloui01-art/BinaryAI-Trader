@@ -41,6 +41,7 @@ API docs: http://127.0.0.1:8000/docs
 - `GET /symbols` — BiQuote reference catalogue.
 - `GET /market/{symbol}/tick` — reference tick.
 - `GET /market/{symbol}/candles?interval=1m&limit=300` — reference OHLC.
+- `GET /market/{symbol}/quality?interval=1m&limit=100` — tick/candle age, timestamp gaps, duplicates and OHLC integrity diagnostics.
 - `GET /quotex/{symbol}/candles` — optional OTCharts read-only candles.
 - `GET /compare/{symbol}/candles` — timestamp-aligned diagnostics when OTCharts is configured.
 - `POST /collect/{symbol}/candles?interval=1m&limit=300` — fetch and store a candle batch.
@@ -65,7 +66,7 @@ Send chronological candles and a separate list of explicit trade entries. `entry
 ```
 The evaluator measures entries supplied by the caller; it does **not** create signals or prove a strategy has an edge. The chronological split is based on candle index, and forward validation still requires genuinely unseen data.
 
-## Validation roadmap
+## Android client\nThe Android 0.2.0 client includes a dashboard, selectable symbol catalogue, 1-minute candlestick chart, reference-price panel, feed-quality diagnostics, historical cache controls, and a strategy-research status page. The app requires the HTTPS URL of a deployed BinaryAI API.\n\n## Validation roadmap
 1. Verify API payloads against live provider responses.
 2. Test stale-feed rejection and candle timestamp conventions.
 3. Expand the SQLite store with retention/export and verify persistence on the chosen host.
