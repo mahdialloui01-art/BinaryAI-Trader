@@ -386,7 +386,7 @@ class MainActivity : Activity() {
                 val wsRequest = Request.Builder().url(wsUrl).build()
                 tickSocket = streamClient.newWebSocket(wsRequest, object : WebSocketListener() {
                     override fun onOpen(webSocket: WebSocket, response: Response) {
-                        webSocket.send("{\"protocol\":\"json\",\"version\":1}\\u001e")
+                        webSocket.send("{\"protocol\":\"json\",\"version\":1}" + "\u001e")
                         runOnUiThread { if (::status.isInitialized) { status.text = "● WebSocket متصل — انتظار Tick"; status.setTextColor(mint) } }
                     }
                     override fun onMessage(webSocket: WebSocket, text: String) {
