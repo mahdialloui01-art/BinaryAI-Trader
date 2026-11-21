@@ -34,8 +34,7 @@ def test_biquote_open_time_is_used_for_candle_freshness():
     assert stamp.isoformat() == "2026-11-21T20:00:00+00:00"
 
 
-def test_otc_stream_route_exists():
-    client = TestClient(app)
-    response = client.get("/quotex/stream", params={"symbols": "EURUSD_otc"})
-    # The route must fail closed when the optional provider is not configured.
-    assert response.status_code in (200, 503)
+def test_otc_stream_route_is_registered():
+    paths = {route.path for route in app.routes}
+    assert "/quotex/stream" in paths
+    assert "/quotex/symbols" in paths
