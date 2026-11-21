@@ -45,3 +45,10 @@ def test_deriv_public_routes_are_registered():
     assert "/deriv/stream" in paths
     assert "/deriv/{symbol}/contracts" in paths
     assert "/symbols" in paths
+
+
+
+def test_professional_analysis_and_walk_forward_routes_are_registered():
+    paths = {route.path for route in app.routes}
+    assert "/analysis/{symbol}" in paths
+    assert "/research/walk-forward/{symbol}" in paths
