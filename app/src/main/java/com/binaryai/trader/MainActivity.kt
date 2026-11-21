@@ -90,7 +90,7 @@ class MainActivity : Activity() {
             hint = "رابط API على HTTPS"
             setSingleLine(true); textSize = 13f
             setTextColor(Color.WHITE); setHintTextColor(muted)
-            setText(prefs.getString("base", "") ?: "")
+            setText(prefs.getString("base", "https://binaryai-trader-api.onrender.com") ?: "https://binaryai-trader-api.onrender.com")
             setPadding(dp(12), 0, dp(12), 0)
             setBackgroundColor(panel)
         }
