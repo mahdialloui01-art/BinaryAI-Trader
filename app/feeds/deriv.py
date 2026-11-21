@@ -29,15 +29,31 @@ class DerivFeed:
 
     async def symbols(self):
         msg = await self._request({"active_symbols":"brief"}, "active_symbols")
-        return [
-            {"symbol": item.get("symbol"), "name": item.get("display_name"),
-             "display_name": item.get("display_name"), "market": item.get("market"),
-             "market_display_name": item.get("market_display_name"),
-             "submarket": item.get("submarket"), "exchange_is_open": item.get("exchange_is_open"),
-             "provider": self.name}
-            for item in msg.get("active_symbols", [])
-            if item.get("symbol")
-        ]
+        # The current Deriv API renamed legacy symbol/display fields:
+        # symbol -> underlying_symbol, display_name -> underlying_symbol_name.
+        # Normalize both current and legacy responses for the Android client.
+        result = []
+        for item in msg.get("active_symbols", []):
+            symbol = item.get("underlying_symbol") or item.get("symbol")
+            if not symbol:
+                continue
+            display_name = item.get("underlying_symbol_name") or item.get("display_name") or symbol
+            market = item.get("market") or ""
+            result.append({
+                "symbol": symbol,
+                "name": display_name,
+                "display_name": display_name,
+                "market": market,
+                "market_display_name": market.replace("_", " ").title(),
+                "submarket": item.get("submarket"),
+                "subgroup": item.get("subgroup"),
+                "underlying_symbol_type": item.get("underlying_symbol_type") or item.get("symbol_type"),
+                "exchange_is_open": bool(item.get("exchange_is_open")),
+                "is_trading_suspended": bool(item.get("is_trading_suspended")),
+                "pip_size": item.get("pip_size") or item.get("pip"),
+                "provider": self.name
+            })
+        return result
 
     async def contracts_for(self, symbol: str):
         msg = await self._request({"contracts_for": symbol}, "contracts_for")
