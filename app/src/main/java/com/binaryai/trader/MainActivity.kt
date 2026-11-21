@@ -2,6 +2,8 @@ package com.binaryai.trader
 
 import android.app.Activity
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Color
@@ -20,6 +22,18 @@ import kotlin.math.min
 
 class MainActivity : Activity() {
     private val io = Executors.newSingleThreadExecutor()
+    private val liveHandler = Handler(Looper.getMainLooper())
+    private var liveTickBusy = false
+    private var liveCandlesBusy = false
+    private var liveQualityBusy = false
+    private var lastCandlePoll = 0L
+    private var lastQualityPoll = 0L
+    private val liveLoop = object : Runnable {
+        override fun run() {
+            pollLiveMarket()
+            liveHandler.postDelayed(this, 2500L)
+        }
+    }
     private val bg = Color.rgb(8, 14, 27)
     private val panel = Color.rgb(17, 27, 44)
     private val muted = Color.rgb(139, 157, 181)
@@ -308,6 +322,50 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun pollLiveMarket() {
+        if (!::base.isInitialized || base.text.isBlank()) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (!liveTickBusy) {
+            liveTickBusy = true
+            request("/market/${encodedSymbol()}/tick") { obj, _ ->
+                liveTickBusy = false
+                if (obj != null) {
+                    lastTick = obj
+                    if (activePage == "home") renderTick()
+                }
+            }
+        }
+        if (now - lastCandlePoll >= 10000L && !liveCandlesBusy) {
+            lastCandlePoll = now
+            liveCandlesBusy = true
+            request("/market/${encodedSymbol()}/candles?interval=1m&limit=100") { obj, _ ->
+                liveCandlesBusy = false
+                if (obj != null) {
+                    lastCandles = extractCandles(obj)
+                    if (activePage == "home" && ::chart.isInitialized) chart.setCandles(lastCandles)
+                }
+            }
+        }
+        if (now - lastQualityPoll >= 30000L && !liveQualityBusy) {
+            lastQualityPoll = now
+            liveQualityBusy = true
+            request("/market/${encodedSymbol()}/quality?interval=1m&limit=100") { obj, error ->
+                liveQualityBusy = false
+                if (obj != null) updateQuality(obj)
+                else if (::qualityText.isInitialized) qualityText.text = error ?: "تعذر فحص جودة المصدر"
+            }
+        }
+    }
+
+    private fun startLiveUpdates() {
+        liveHandler.removeCallbacks(liveLoop)
+        liveHandler.post(liveLoop)
+    }
+
+    private fun stopLiveUpdates() {
+        liveHandler.removeCallbacks(liveLoop)
+    }
+
     private fun refreshMarket() {
         request("/market/${encodedSymbol()}/tick") { obj, error ->
             if (obj != null) { lastTick = obj; if (activePage == "home") renderTick() }
@@ -325,6 +383,12 @@ class MainActivity : Activity() {
     private fun loadQuality() {
         request("/market/${encodedSymbol()}/quality?interval=1m&limit=100") { obj, error ->
             if (obj != null) {
+                updateQuality(obj)
+            } else if (::qualityText.isInitialized) qualityText.text = error ?: "تعذر فحص جودة المصدر"
+        }
+    }
+
+    private fun updateQuality(obj: JSONObject) {
                 val flags = obj.optJSONArray("flags")
                 val list = if (flags == null || flags.length() == 0) "لا توجد ملاحظات" else
                     (0 until flags.length()).joinToString("، ") { flags.optString(it) }
@@ -417,7 +481,18 @@ class MainActivity : Activity() {
     private fun display(v: Any?): String = if (v == null || v == JSONObject.NULL) "--" else v.toString()
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 
+    override fun onResume() {
+        super.onResume()
+        startLiveUpdates()
+    }
+
+    override fun onPause() {
+        stopLiveUpdates()
+        super.onPause()
+    }
+
     override fun onDestroy() {
+        stopLiveUpdates()
         io.shutdown()
         super.onDestroy()
     }
