@@ -1,6 +1,7 @@
 from app.feeds.biquote import BiQuoteFeed
 from app.feeds.otcharts import OTChartsFeed
 
+
 class MarketDataService:
     def __init__(self, otcharts_api_key: str | None = None):
         self.reference = BiQuoteFeed()
@@ -8,15 +9,29 @@ class MarketDataService:
 
     async def health(self):
         return {
-            "quotex_readonly": "configured" if self.quotex else "needs_otcharts_api_key",
-            "real_market_reference": "configured",
+            "real_market_reference": {
+                "provider": "biquote",
+                "configuration": "public_read_only_endpoint",
+                "requires_api_key": False,
+                "live_status": "not_probed",
+            },
+            "quotex_readonly": {
+                "provider": "otcharts",
+                "configuration": "configured" if self.quotex else "disabled_optional",
+                "requires_paid_or_trial_plan": "unknown",
+                "live_status": "not_probed",
+            },
             "execution": "disabled",
+            "policy": "Free-first core; optional provider never blocks reference-data endpoints.",
         }
+
+    async def reference_symbols(self):
+        return await self.reference.symbols()
 
     async def quotex_candles(self, symbol: str, timeframe_seconds: int = 60,
                              limit: int = 300):
         if not self.quotex:
-            raise RuntimeError("Set OTCHARTS_API_KEY to enable the third-party read-only feed")
+            raise RuntimeError("Optional OTCharts feed is disabled; no paid dependency is required for the core")
         return await self.quotex.candles(symbol, timeframe_seconds, limit, "quotex")
 
     async def reference_candles(self, symbol: str, interval: str = "1m",
