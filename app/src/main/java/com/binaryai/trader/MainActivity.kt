@@ -251,7 +251,7 @@ class MainActivity : Activity() {
 
     private fun buildAssets() {
         addSection(page, "كتالوج الأصول")
-        page.addView(label("الأصول المعروضة تأتي من كتالوج مزود البيانات. توفر الرمز قد يختلف حسب المصدر والوقت.", 11f))
+        page.addView(label("أصول الخيارات الثنائية فقط — تم استبعاد أزواج الفوركس من القائمة.", 11f))
         addGap(page)
         page.addView(actionButton("تحديث قائمة الأصول") { loadSymbols() })
         addGap(page)
@@ -261,11 +261,11 @@ class MainActivity : Activity() {
             for (i in 0 until min(lastSymbols.length(), 250)) {
                 val item = lastSymbols.optJSONObject(i) ?: continue
                 val sym = item.optString("symbol", item.optString("name", item.optString("ticker", "UNKNOWN")))
-                val isOtc = sym.contains("otc", true) || item.optString("market", "").contains("otc", true)
+                val isOtc = false
                 val row = card()
                 val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
                 top.addView(label(sym, 15f, Color.WHITE, true), LinearLayout.LayoutParams(0, -2, 1f))
-                top.addView(label(if (isOtc) "Deriv" else "REAL / UNKNOWN", 10f, if (isOtc) Color.rgb(255,194,91) else mint, true))
+                top.addView(label("BINARY OPTIONS", 10f, mint, true))
                 row.addView(top)
                 row.addView(label(item.optString("description", item.optString("base", "مزود: Deriv")), 10f))
                 row.setOnClickListener {
@@ -346,7 +346,7 @@ class MainActivity : Activity() {
     }
 
     private fun loadDerivSymbols() {
-        request("/symbols") { obj, error ->
+        request("/binary-options/symbols") { obj, error ->
             if (obj == null) {
                 status.text = "● تعذر تحميل كتالوج Deriv: ${error ?: "خطأ"}"
                 status.setTextColor(red)
@@ -576,11 +576,11 @@ class MainActivity : Activity() {
     }
 
     private fun loadSymbols() {
-        request("/symbols") { obj, error ->
+        request("/binary-options/symbols") { obj, error ->
             if (obj != null) {
                 lastSymbols = obj.optJSONArray("symbols") ?: JSONArray()
                 if (activePage == "assets") showPage("assets")
-                toast("تم تحميل ${lastSymbols.length()} رمز من كتالوج Deriv")
+                toast("تم تحميل ${lastSymbols.length()} أصل Binary Options غير Forex")
             } else toast(error ?: "فشل تحميل رموز Deriv")
         }
     }
