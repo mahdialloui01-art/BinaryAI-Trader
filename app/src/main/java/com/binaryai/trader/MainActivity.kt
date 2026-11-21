@@ -320,10 +320,6 @@ class MainActivity : Activity() {
     }
 
     private fun connectAndRefresh() {
-        tickSocket?.cancel()
-        tickSocket = null
-        liveHandler.removeCallbacks(streamReconnect)
-        streamReconnectPending = false
         stopLiveStream()
         request("/health") { obj, error ->
             if (obj != null) {
@@ -519,29 +515,20 @@ class MainActivity : Activity() {
         if (activePage == "home" && ::chart.isInitialized) chart.setCandles(lastCandles)
     }
 
-    private fun scheduleStreamReconnect() { if (!streamReconnectPending) { streamReconnectPending = true; liveHandler.postDelayed(streamReconnect, 5000L) } }
-    private fun startLiveUpdates() { liveHandler.removeCallbacks(liveLoop); liveHandler.post(liveLoop); startTickStream() }
-    private fun stopLiveUpdates() { liveHandler.removeCallbacks(liveLoop); liveHandler.removeCallbacks(streamReconnect); streamReconnectPending = false; tickSocket?.close(1000, "app background"); tickSocket = null }
-
     private fun refreshMarket() {
         if (lastSymbols.length() == 0) loadQuotexSymbols()
         else { loadQuotexCandles(safeSymbol()); if (streamCall == null) startTickStream() }
     }
 
     private fun loadQuality() {
-        request("/market/${encodedSymbol()}/quality?interval=1m&limit=100") { obj, error ->
-            if (obj != null) updateQuality(obj)
-            else if (::qualityText.isInitialized) qualityText.text = error ?: "تعذر فحص جودة المصدر"
+        val age = if (lastStreamTickAt > 0L) (System.currentTimeMillis() - lastStreamTickAt) / 1000L else -1L
+        val state = when {
+            !streamConnected -> "البث غير متصل"
+            age < 0L -> "القناة مفتوحة ولم تصل أول Tick"
+            age > 30L -> "السعر متوقف منذ $age ثانية"
+            else -> "بث Quotex OTC مستمر — آخر Tick منذ $age ثانية"
         }
-    }
-
-    private fun updateQuality(obj: JSONObject) {
-        val flags = obj.optJSONArray("flags")
-        val list = if (flags == null || flags.length() == 0) "لا توجد ملاحظات" else
-            (0 until flags.length()).joinToString("، ") { flags.optString(it) }
-        val statusLabel = obj.optString("status", "unknown").uppercase()
-        val details = "الحالة: $statusLabel\nعمر السعر: ${display(obj.opt("tick_age_seconds"))} ثانية\nعمر آخر شمعة: ${display(obj.opt("latest_candle_age_seconds"))} ثانية\nالشموع: ${obj.optInt("candles_received")}  •  فجوات تقديرية: ${obj.optInt("estimated_missing_bars")}\nتكرار التوقيت: ${obj.optInt("duplicate_timestamps")}  •  شموع OHLC غير سليمة: ${obj.optInt("invalid_ohlc_bars")}\nالملاحظات: $list"
-        if (::qualityText.isInitialized) qualityText.text = details
+        if (::qualityText.isInitialized) qualityText.text = "المصدر: OTCharts / Quotex\nالحالة: $state\nالرمز: ${safeSymbol()}\nعدد الشموع المعروضة: ${lastCandles.length()}"
     }
 
     private fun renderTick() {
@@ -619,6 +606,7 @@ class MainActivity : Activity() {
     }
 
     private fun safeSymbol() = symbol.text.toString().trim().ifBlank { "EURUSD_otc" }
+    private fun encodedSymbol() = URLEncoder.encode(safeSymbol(), "UTF-8")
     private fun display(v: Any?): String = if (v == null || v == JSONObject.NULL) "--" else v.toString()
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
 
