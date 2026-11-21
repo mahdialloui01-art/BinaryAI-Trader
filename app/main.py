@@ -12,6 +12,7 @@ from app.storage import CandleStore
 from pydantic import BaseModel, Field
 from app.research.backtest import evaluate_binary_trades
 from app.research.engine import analyze_binary_options
+from app.research.walk_forward import walk_forward_binary_options
 
 class ResearchEvaluationRequest(BaseModel):
     candles: list[dict] = Field(min_length=2, max_length=20000)
@@ -399,7 +400,7 @@ async def history_stats():
 async def binary_analysis(
     symbol: str = Path(..., min_length=2, max_length=30, pattern="^[A-Za-z0-9_]+$"),
     interval: str = Query(default="1m", pattern="^(1m|5m|15m)$"),
-    limit: int = Query(default=250, ge=80, le=500),
+    limit: int = Query(default=250, ge=120, le=2000),
 ):
     """Generate an explainable CALL/PUT/NO_TRADE research analysis from closed Deriv candles."""
     import asyncio
@@ -429,6 +430,50 @@ async def binary_analysis(
         return analyze_binary_options(base, symbol.upper(), interval, higher)
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Binary analysis failed: {exc}") from exc
+
+
+
+
+@app.get("/research/walk-forward/{symbol}")
+async def research_walk_forward(
+    symbol: str = Path(..., min_length=2, max_length=30, pattern="^[A-Za-z0-9_]+$"),
+    interval: str = Query(default="1m", pattern="^(1m|5m|15m)$"),
+    limit: int = Query(default=1500, ge=180, le=2000),
+    payout: float = Query(default=0.80, gt=0, le=1),
+    expiry_bars: int = Query(default=1, ge=1, le=3),
+    stake: float = Query(default=1.0, gt=0),
+):
+    """Run a chronological, no-lookahead historical replay of the production signal rules."""
+    import asyncio
+    from datetime import timedelta
+    seconds = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400}
+    higher_map = {"1m": ["5m", "15m"], "5m": ["15m", "1h"], "15m": ["1h", "4h"]}
+    service = data_service()
+    try:
+        frames = [interval, *higher_map[interval]]
+        fetched = await asyncio.gather(*[
+            service.reference_candles(symbol.upper(), tf, limit if tf == interval else 300)
+            for tf in frames
+        ])
+        now = datetime.now(timezone.utc)
+
+        def closed(rows, tf):
+            duration = timedelta(seconds=seconds[tf])
+            return [
+                row for row in rows
+                if (stamp := candle_timestamp(row)) is not None and stamp + duration <= now
+            ]
+
+        base = closed(fetched[0], interval)
+        higher = {tf: closed(rows, tf) for tf, rows in zip(frames[1:], fetched[1:])}
+        return walk_forward_binary_options(
+            base, symbol.upper(), interval, higher, payout=payout,
+            stake=stake, expiry_bars=expiry_bars,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Walk-forward research failed: {exc}") from exc
 
 
 @app.get("/signals/example", response_model=SignalDecision)
