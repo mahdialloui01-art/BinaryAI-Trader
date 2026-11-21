@@ -15,6 +15,8 @@ Independent binary-options research and signal-analysis platform. This repositor
 - Conservative OTC symbol classification.
 - UTC timestamp alignment and candle comparison diagnostics.
 - Signal research only: CALL / PUT / NO_TRADE.
+- Local SQLite historical candle cache with upsert/deduplication.
+- Collection and replay endpoints for stored reference candles.
 - Historical and forward testing before any strategy is considered usable.
 
 ## Important integration limits
@@ -41,11 +43,14 @@ API docs: http://127.0.0.1:8000/docs
 - `GET /market/{symbol}/candles?interval=1m&limit=300` — reference OHLC.
 - `GET /quotex/{symbol}/candles` — optional OTCharts read-only candles.
 - `GET /compare/{symbol}/candles` — timestamp-aligned diagnostics when OTCharts is configured.
+- `POST /collect/{symbol}/candles?interval=1m&limit=300` — fetch and store a candle batch.
+- `GET /history/{symbol}/candles?provider=biquote&interval=1m` — replay locally stored candles.
+- `GET /history/stats` — local cache counts.
 - `GET /signals/example` — explicit NO_TRADE placeholder until a strategy passes validation.
 
 ## Validation roadmap
 1. Verify API payloads against live provider responses.
 2. Test stale-feed rejection and candle timestamp conventions.
-3. Build a permission-compliant historical store and replay engine.
+3. Expand the SQLite store with retention/export and verify persistence on the chosen host.
 4. Evaluate strategies with chronological train/test splits, costs, expiry labels and forward tests.
 5. Release an Android client only after the backend and strategy have measurable validation.
