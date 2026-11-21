@@ -251,7 +251,7 @@ class MainActivity : Activity() {
 
     private fun buildAssets() {
         addSection(page, "كتالوج الأصول")
-        page.addView(label("أصول الخيارات الثنائية فقط — تم استبعاد أزواج الفوركس من القائمة.", 11f))
+        page.addView(label("كل أصول Deriv المتاحة. اختيار الأصل يحمّل مخططه ويتحقق من عقود Binary Options فقط؛ لا يتم تنفيذ تداول فوركس.", 11f))
         addGap(page)
         page.addView(actionButton("تحديث قائمة الأصول") { loadSymbols() })
         addGap(page)
@@ -265,9 +265,9 @@ class MainActivity : Activity() {
                 val row = card()
                 val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
                 top.addView(label(sym, 15f, Color.WHITE, true), LinearLayout.LayoutParams(0, -2, 1f))
-                top.addView(label("BINARY OPTIONS", 10f, mint, true))
+                top.addView(label(item.optString("market_display_name", item.optString("market", "DERIV")), 10f, mint, true))
                 row.addView(top)
-                row.addView(label(item.optString("description", item.optString("base", "مزود: Deriv")), 10f))
+                row.addView(label((if (item.optBoolean("exchange_is_open", false)) "مفتوح" else "مغلق") + " • " + item.optString("display_name", item.optString("name", "Deriv")) + " • اضغط لعرض المخطط", 10f))
                 row.setOnClickListener {
                     symbol.setText(sym)
                     getSharedPreferences("binaryai", MODE_PRIVATE).edit().putString("symbol", sym).apply()
@@ -580,7 +580,7 @@ class MainActivity : Activity() {
             if (obj != null) {
                 lastSymbols = obj.optJSONArray("symbols") ?: JSONArray()
                 if (activePage == "assets") showPage("assets")
-                toast("تم تحميل ${lastSymbols.length()} أصل Binary Options غير Forex")
+                toast("تم تحميل ${lastSymbols.length()} أصل من Deriv")
             } else toast(error ?: "فشل تحميل رموز Deriv")
         }
     }
