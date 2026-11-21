@@ -420,6 +420,10 @@ class MainActivity : Activity() {
                                     val tick = JSONObject(data)
                                     if (tick.optString("symbol").equals(selected, true)) applyDerivTick(tick)
                                 }
+                                "error" -> {
+                                    val detail = try { JSONObject(data).optString("error", "Deriv stream error") } catch (_: Exception) { data.take(120) }
+                                    runOnUiThread { if (::status.isInitialized) { status.text = "● خطأ بث Deriv: $detail"; status.setTextColor(red) } }
+                                }
                                 "closed" -> runOnUiThread { if (::status.isInitialized) { status.text = "● الرمز $selected مغلق للتداول لدى Deriv"; status.setTextColor(Color.rgb(255,194,91)) } }
                                 "replaced" -> runOnUiThread { if (::status.isInitialized) { status.text = "● استُبدل اتصال البث"; status.setTextColor(red) } }
                             }
