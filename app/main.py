@@ -176,6 +176,42 @@ async def market_quality(
         raise HTTPException(status_code=502, detail=f"Feed quality check failed: {exc}") from exc
 
 
+@app.get("/binary-options/symbols")
+async def binary_option_symbols():
+    """Only list non-Forex Deriv underlyings suitable for Binary Options research."""
+    try:
+        items = await data_service().reference_symbols()
+        allowed_markets = {
+            "synthetic_index", "indices", "stock_indices", "commodities",
+            "cryptocurrency", "cryptocurrencies",
+        }
+        filtered = []
+        for item in items:
+            symbol = str(item.get("symbol", "")).upper()
+            market = str(item.get("market", "")).strip().lower().replace(" ", "_")
+            submarket = str(item.get("submarket", "")).strip().lower().replace(" ", "_")
+            # Explicitly exclude all Forex pairs, including legacy frx-prefixed symbols.
+            if market in {"forex", "forex_market"} or symbol.startswith("FRX"):
+                continue
+            if market not in allowed_markets and submarket not in allowed_markets:
+                continue
+            filtered.append({
+                **item,
+                "market_kind": "binary_options_underlying",
+                "product": "binary_options",
+            })
+        return {
+            "provider": "deriv",
+            "product": "binary_options",
+            "count": len(filtered),
+            "symbols": filtered,
+            "excluded": "forex",
+            "note": "Non-Forex underlyings only. Confirm available contract types before analysis.",
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Binary Options catalogue unavailable: {exc}") from exc
+
+
 @app.get("/deriv/{symbol}/contracts")
 async def deriv_contracts(symbol: str = Path(..., min_length=2, max_length=30, pattern="^[A-Za-z0-9_]+$")):
     """Return contract types Deriv currently lists for this underlying; no trade is placed."""
