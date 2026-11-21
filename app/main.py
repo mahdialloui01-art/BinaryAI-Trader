@@ -3,6 +3,7 @@ from fastapi import FastAPI, HTTPException, Query
 from app.feeds.service import MarketDataService
 from app.feeds.normalization import align_candles, classify_market
 from app.models import SignalDecision
+from app.storage import CandleStore
 
 app = FastAPI(
     title="BinaryAI-Trader API",
@@ -124,6 +125,59 @@ async def compare_candles(
         }
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Feed comparison failed: {exc}") from exc
+
+
+@app.post("/collect/{symbol}/candles")
+async def collect_candles(
+    symbol: str,
+    interval: str = Query(default="1m", pattern="^(1m|5m|15m|30m|1h|4h|1d)$"),
+    limit: int = Query(default=300, ge=1, le=1000),
+):
+    """Fetch from the free-first reference feed and persist a local historical batch."""
+    try:
+        candles = await data_service().reference_candles(symbol.upper(), interval, limit)
+        result = CandleStore().upsert("biquote", symbol.upper(), interval, candles)
+        return {
+            "provider": "biquote",
+            "symbol": symbol.upper(),
+            "interval": interval,
+            "received": len(candles),
+            **result,
+            "database_total": CandleStore().count("biquote"),
+            "note": "Local SQLite cache; on ephemeral hosting it resets on redeploy unless a persistent disk is attached.",
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Collection failed: {exc}") from exc
+
+
+@app.get("/history/{symbol}/candles")
+async def historical_candles(
+    symbol: str,
+    provider: str = Query(default="biquote", pattern="^(biquote|otcharts)$"),
+    interval: str = Query(default="1m", pattern="^(1m|5m|15m|30m|1h|4h|1d)$"),
+    limit: int = Query(default=500, ge=1, le=10000),
+    since: str | None = Query(default=None),
+):
+    try:
+        store = CandleStore()
+        candles = store.get(provider, symbol.upper(), interval, limit, since)
+        return {
+            "provider": provider,
+            "symbol": symbol.upper(),
+            "interval": interval,
+            "count": len(candles),
+            "candles": candles,
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"History read failed: {exc}") from exc
+
+
+@app.get("/history/stats")
+async def history_stats():
+    store = CandleStore()
+    return {"stored_candles": store.count(), "biquote_candles": store.count("biquote")}
 
 
 @app.get("/signals/example", response_model=SignalDecision)
