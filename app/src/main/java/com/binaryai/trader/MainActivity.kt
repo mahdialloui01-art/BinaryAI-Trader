@@ -121,10 +121,10 @@ class MainActivity : Activity() {
             setBackgroundColor(panel)
         }
         symbol = EditText(this).apply {
-            hint = "الرمز مثل EURUSD"
+            hint = "الرمز مثل frxEURUSD"
             setSingleLine(true); textSize = 13f
             setTextColor(Color.WHITE); setHintTextColor(muted)
-            setText(prefs.getString("symbol", "EURUSD") ?: "EURUSD")
+            setText(prefs.getString("symbol", "frxEURUSD") ?: "frxEURUSD")
             setPadding(dp(12), 0, dp(12), 0)
             setBackgroundColor(panel)
         }
@@ -208,13 +208,13 @@ class MainActivity : Activity() {
         page.addView(settings)
         addGap(page)
         val quote = card()
-        quote.addView(label("سعر Quotex OTC المباشر — قراءة فقط", 11f))
+        quote.addView(label("سعر Deriv المباشر — قراءة فقط", 11f))
         priceText = label("--", 30f, Color.WHITE, true)
         priceText.setPadding(0, dp(7), 0, dp(2))
         quote.addView(priceText)
         changeText = label("Bid: --     Ask: --", 12f, mint)
         quote.addView(changeText)
-        marketText = label("المصدر: OTCharts / Quotex  •  بانتظار البث", 10f)
+        marketText = label("المصدر: Deriv / Deriv  •  بانتظار البث", 10f)
         marketText.setPadding(0, dp(8), 0, 0)
         quote.addView(marketText)
         page.addView(quote)
@@ -224,7 +224,7 @@ class MainActivity : Activity() {
         chart = CandleChartView(this)
         chart.setBackgroundColor(panel)
         chartCard.addView(chart, LinearLayout.LayoutParams(-1, dp(220)))
-        chartCard.addView(label("شموع OTCharts لدفتر Quotex؛ قد توجد فروق أو تأخيرات لدى المزود والشبكة.", 10f))
+        chartCard.addView(label("شموع Deriv لدفتر Deriv؛ قد توجد فروق أو تأخيرات لدى المزود والشبكة.", 10f))
         page.addView(chartCard)
         addGap(page)
         addSection(page, "جودة البيانات")
@@ -244,7 +244,7 @@ class MainActivity : Activity() {
         signal.addView(label("لا توجد حالياً استراتيجية اجتازت التحقق التاريخي والاختبار الأمامي. لن نخترع إشارة CALL أو PUT.", 12f, Color.WHITE))
         page.addView(signal)
         addGap(page)
-        page.addView(label("وضع البحث فقط • لا تسجيل دخول Quotex • لا تنفيذ صفقات • لا ضمان أرباح", 10f))
+        page.addView(label("وضع البحث فقط • لا تسجيل دخول Deriv • لا تنفيذ صفقات • لا ضمان أرباح", 10f))
         if (lastTick.length() > 0) renderTick()
         if (lastCandles.length() > 0) chart.setCandles(lastCandles)
     }
@@ -265,9 +265,9 @@ class MainActivity : Activity() {
                 val row = card()
                 val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
                 top.addView(label(sym, 15f, Color.WHITE, true), LinearLayout.LayoutParams(0, -2, 1f))
-                top.addView(label(if (isOtc) "OTC" else "REAL / UNKNOWN", 10f, if (isOtc) Color.rgb(255,194,91) else mint, true))
+                top.addView(label(if (isOtc) "Deriv" else "REAL / UNKNOWN", 10f, if (isOtc) Color.rgb(255,194,91) else mint, true))
                 row.addView(top)
-                row.addView(label(item.optString("description", item.optString("base", "مزود: BiQuote")), 10f))
+                row.addView(label(item.optString("description", item.optString("base", "مزود: Deriv")), 10f))
                 row.setOnClickListener {
                     symbol.setText(sym)
                     getSharedPreferences("binaryai", MODE_PRIVATE).edit().putString("symbol", sym).apply()
@@ -307,12 +307,12 @@ class MainActivity : Activity() {
         val count = lastHistory.optInt("stored_candles", 0)
         stats.addView(label("إجمالي الشموع المخزنة", 11f))
         stats.addView(label(count.toString(), 28f, Color.WHITE, true))
-        stats.addView(label("BiQuote: " + lastHistory.optInt("biquote_candles", 0), 12f, mint))
+        stats.addView(label("Deriv: " + lastHistory.optInt("deriv_candles", 0), 12f, mint))
         page.addView(stats)
         addGap(page)
         val collect = card()
         collect.addView(label("جمع بيانات الأصل المختار", 13f, Color.WHITE, true))
-        collect.addView(label("سيتم جلب حتى 500 شمعة 1m من BiQuote وتخزينها في SQLite على الخادم.", 11f))
+        collect.addView(label("سيتم جلب حتى 500 شمعة 1m من Deriv وتخزينها في SQLite على الخادم.", 11f))
         addGap(collect, 8)
         collect.addView(actionButton("جمع 500 شمعة") { collectCandles() })
         page.addView(collect)
@@ -325,9 +325,9 @@ class MainActivity : Activity() {
         request("/health") { obj, error ->
             if (obj != null) {
                 lastHealth = obj
-                status.text = "● الخادم متصل — نتحقق من تغذية Quotex OTC"
+                status.text = "● الخادم متصل — نتحقق من تغذية Deriv"
                 status.setTextColor(Color.rgb(255,194,91))
-                loadQuotexSymbols()
+                loadDerivSymbols()
             } else {
                 status.text = "● تعذر الاتصال بالخادم"
                 status.setTextColor(red)
@@ -345,16 +345,16 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun loadQuotexSymbols() {
-        request("/quotex/symbols") { obj, error ->
+    private fun loadDerivSymbols() {
+        request("/symbols") { obj, error ->
             if (obj == null) {
-                status.text = "● تعذر تحميل كتالوج Quotex: ${error ?: "خطأ"}"
+                status.text = "● تعذر تحميل كتالوج Deriv: ${error ?: "خطأ"}"
                 status.setTextColor(red)
                 return@request
             }
             lastSymbols = obj.optJSONArray("symbols") ?: JSONArray()
             if (lastSymbols.length() == 0) {
-                status.text = "● كتالوج OTCharts فارغ"
+                status.text = "● كتالوج Deriv فارغ"
                 status.setTextColor(red)
                 return@request
             }
@@ -367,14 +367,14 @@ class MainActivity : Activity() {
                     chosen = item; break
                 }
             }
-            if (chosen == null) chosen = (0 until lastSymbols.length()).mapNotNull { lastSymbols.optJSONObject(it) }.firstOrNull { it.optString("symbol").equals("EURUSD_otc", true) } ?: lastSymbols.optJSONObject(0)
+            if (chosen == null) chosen = (0 until lastSymbols.length()).mapNotNull { lastSymbols.optJSONObject(it) }.firstOrNull { it.optString("symbol").equals("frxfrxEURUSD", true) } ?: lastSymbols.optJSONObject(0)
             val exact = chosen?.optString("symbol").orEmpty()
             if (exact.isBlank()) {
                 status.text = "● معرّف الرمز غير صالح"; status.setTextColor(red); return@request
             }
             symbol.setText(exact)
             getSharedPreferences("binaryai", MODE_PRIVATE).edit().putString("symbol", exact).apply()
-            loadQuotexCandles(exact)
+            loadDerivCandles(exact)
             startTickStream()
         }
     }
@@ -382,15 +382,15 @@ class MainActivity : Activity() {
     private fun startTickStream() {
         if (!::symbol.isInitialized || base.text.isBlank() || streamCall != null) return
         val selected = safeSymbol()
-        val url = base.text.toString().trim().trimEnd('/') + "/quotex/stream?symbols=" + URLEncoder.encode(selected, "UTF-8")
+        val url = base.text.toString().trim().trimEnd('/') + "/deriv/stream?symbol=" + URLEncoder.encode(selected, "UTF-8")
         val req = Request.Builder().url(url).header("Accept", "text/event-stream").header("Cache-Control", "no-cache").build()
-        runOnUiThread { if (::status.isInitialized) { status.text = "● جاري فتح بث Quotex OTC: $selected"; status.setTextColor(Color.rgb(255,194,91)) } }
+        runOnUiThread { if (::status.isInitialized) { status.text = "● جاري فتح بث Deriv: $selected"; status.setTextColor(Color.rgb(255,194,91)) } }
         val call = streamClient.newCall(req)
         streamCall = call
         call.enqueue(object : Callback {
             override fun onFailure(call: Call, e: java.io.IOException) {
                 streamCall = null; streamConnected = false
-                runOnUiThread { if (::status.isInitialized) { status.text = "● فشل بث OTCharts: ${e.message}"; status.setTextColor(red) } }
+                runOnUiThread { if (::status.isInitialized) { status.text = "● فشل بث Deriv: ${e.message}"; status.setTextColor(red) } }
                 scheduleStreamReconnect()
             }
             override fun onResponse(call: Call, response: Response) {
@@ -398,12 +398,12 @@ class MainActivity : Activity() {
                     val detail = response.body?.string().orEmpty().take(150)
                     val code = response.code
                     response.close(); streamCall = null; streamConnected = false
-                    runOnUiThread { if (::status.isInitialized) { status.text = "● رفض بث Quotex HTTP $code: $detail"; status.setTextColor(red) } }
+                    runOnUiThread { if (::status.isInitialized) { status.text = "● رفض بث Deriv HTTP $code: $detail"; status.setTextColor(red) } }
                     if (code != 401 && code != 403 && code != 429) scheduleStreamReconnect()
                     return
                 }
                 streamConnected = true
-                runOnUiThread { if (::status.isInitialized) { status.text = "● قناة OTCharts مفتوحة — انتظار تأكيد الاشتراك"; status.setTextColor(Color.rgb(255,194,91)) } }
+                runOnUiThread { if (::status.isInitialized) { status.text = "● قناة Deriv مفتوحة — انتظار تأكيد الاشتراك"; status.setTextColor(Color.rgb(255,194,91)) } }
                 var eventName = ""
                 try {
                     val source = response.body?.source() ?: throw java.io.IOException("Empty SSE body")
@@ -415,18 +415,18 @@ class MainActivity : Activity() {
                         else if (line.startsWith("data:")) {
                             val data = line.substringAfter("data:").trim()
                             when (eventName) {
-                                "connected" -> runOnUiThread { if (::status.isInitialized) { status.text = "● OTCharts أكد اشتراك $selected"; status.setTextColor(mint) } }
+                                "connected" -> runOnUiThread { if (::status.isInitialized) { status.text = "● Deriv أكد اشتراك $selected"; status.setTextColor(mint) } }
                                 "tick" -> {
                                     val tick = JSONObject(data)
-                                    if (tick.optString("symbol").equals(selected, true)) applyQuotexTick(tick)
+                                    if (tick.optString("symbol").equals(selected, true)) applyDerivTick(tick)
                                 }
-                                "closed" -> runOnUiThread { if (::status.isInitialized) { status.text = "● الرمز $selected مغلق للتداول لدى Quotex"; status.setTextColor(Color.rgb(255,194,91)) } }
+                                "closed" -> runOnUiThread { if (::status.isInitialized) { status.text = "● الرمز $selected مغلق للتداول لدى Deriv"; status.setTextColor(Color.rgb(255,194,91)) } }
                                 "replaced" -> runOnUiThread { if (::status.isInitialized) { status.text = "● استُبدل اتصال البث"; status.setTextColor(red) } }
                             }
                         }
                     }
                 } catch (e: Exception) {
-                    if (!call.isCanceled()) runOnUiThread { if (::status.isInitialized) { status.text = "● انقطع تدفق OTCharts: ${e.message}"; status.setTextColor(red) } }
+                    if (!call.isCanceled()) runOnUiThread { if (::status.isInitialized) { status.text = "● انقطع تدفق Deriv: ${e.message}"; status.setTextColor(red) } }
                 } finally {
                     response.close()
                     if (streamCall === call) streamCall = null
@@ -437,34 +437,34 @@ class MainActivity : Activity() {
         })
     }
 
-    private fun applyQuotexTick(tick: JSONObject) {
+    private fun applyDerivTick(tick: JSONObject) {
         val price = tick.optDouble("price", Double.NaN)
         if (!price.isFinite()) return
         val epoch = tick.optLong("time", 0L)
         val stamp = if (epoch > 0L) java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date(epoch * 1000L)) else ""
         lastStreamTickAt = System.currentTimeMillis()
-        val normalized = JSONObject().put("provider", "otcharts").put("venue", "quotex").put("symbol", tick.optString("symbol", safeSymbol())).put("price", price).put("mid", price).put("timestamp", stamp).put("stale", false).put("stream", "otcharts_sse")
+        val normalized = JSONObject().put("provider", "otcharts").put("venue", "quotex").put("symbol", tick.optString("symbol", safeSymbol())).put("price", price).put("mid", price).put("timestamp", stamp).put("stale", false).put("stream", "deriv_sse")
         runOnUiThread {
             lastTick = normalized
             if (::marketText.isInitialized && activePage == "home") renderTick()
-            if (::status.isInitialized) { status.text = "● Tick Quotex OTC حي — ${tick.optString("symbol", safeSymbol())} — ${stamp.ifBlank { "وقت المزود غير متاح" }}"; status.setTextColor(mint) }
+            if (::status.isInitialized) { status.text = "● Tick Deriv حي — ${tick.optString("symbol", safeSymbol())} — ${stamp.ifBlank { "وقت المزود غير متاح" }}"; status.setTextColor(mint) }
             updateLiveCandle(price, stamp)
         }
     }
 
-    private fun loadQuotexCandles(selected: String) {
+    private fun loadDerivCandles(selected: String) {
         val encoded = URLEncoder.encode(selected, "UTF-8")
-        request("/quotex/$encoded/candles?timeframe_seconds=60&limit=100") { obj, error ->
+        request("/market/$encoded/candles?interval=1m&limit=100") { obj, error ->
             if (obj != null) {
-                lastCandles = normalizeQuotexCandles(obj.optJSONArray("candles") ?: JSONArray())
+                lastCandles = normalizeDerivCandles(obj.optJSONArray("candles") ?: JSONArray())
                 if (activePage == "home" && ::chart.isInitialized) chart.setCandles(lastCandles)
             } else if (::status.isInitialized) {
-                status.text = "● تعذر تحميل شموع Quotex: ${error ?: "خطأ"}"; status.setTextColor(Color.rgb(255,194,91))
+                status.text = "● تعذر تحميل شموع Deriv: ${error ?: "خطأ"}"; status.setTextColor(Color.rgb(255,194,91))
             }
         }
     }
 
-    private fun normalizeQuotexCandles(rows: JSONArray): JSONArray {
+    private fun normalizeDerivCandles(rows: JSONArray): JSONArray {
         val result = JSONArray()
         for (i in 0 until rows.length()) {
             val row = rows.optJSONObject(i) ?: continue
@@ -517,8 +517,8 @@ class MainActivity : Activity() {
     }
 
     private fun refreshMarket() {
-        if (lastSymbols.length() == 0) loadQuotexSymbols()
-        else { loadQuotexCandles(safeSymbol()); if (streamCall == null) startTickStream() }
+        if (lastSymbols.length() == 0) loadDerivSymbols()
+        else { loadDerivCandles(safeSymbol()); if (streamCall == null) startTickStream() }
     }
 
     private fun loadQuality() {
@@ -527,9 +527,9 @@ class MainActivity : Activity() {
             !streamConnected -> "البث غير متصل"
             age < 0L -> "القناة مفتوحة ولم تصل أول Tick"
             age > 30L -> "السعر متوقف منذ $age ثانية"
-            else -> "بث Quotex OTC مستمر — آخر Tick منذ $age ثانية"
+            else -> "بث Deriv مستمر — آخر Tick منذ $age ثانية"
         }
-        if (::qualityText.isInitialized) qualityText.text = "المصدر: OTCharts / Quotex\nالحالة: $state\nالرمز: ${safeSymbol()}\nعدد الشموع المعروضة: ${lastCandles.length()}"
+        if (::qualityText.isInitialized) qualityText.text = "المصدر: Deriv / Deriv\nالحالة: $state\nالرمز: ${safeSymbol()}\nعدد الشموع المعروضة: ${lastCandles.length()}"
     }
 
     private fun renderTick() {
@@ -540,18 +540,18 @@ class MainActivity : Activity() {
         priceText.text = if (mid == null || mid == JSONObject.NULL) "--" else mid.toString()
         changeText.text = "Bid: ${display(bid)}     Ask: ${display(ask)}"
         val stale = lastTick.optBoolean("stale", false)
-        val source = if (lastTick.optString("stream") == "otcharts_sse") "بث SSE مباشر" else "لا يوجد بث حي"
-        marketText.text = "OTCharts / Quotex  •  $source  •  ${if (stale) "بيانات قديمة" else "آخر تحديث: " + lastTick.optString("timestamp", "--")}"
+        val source = if (lastTick.optString("stream") == "deriv_sse") "بث SSE مباشر" else "لا يوجد بث حي"
+        marketText.text = "Deriv / Deriv  •  $source  •  ${if (stale) "بيانات قديمة" else "آخر تحديث: " + lastTick.optString("timestamp", "--")}"
         marketText.setTextColor(if (stale) red else muted)
     }
 
     private fun loadSymbols() {
-        request("/quotex/symbols") { obj, error ->
+        request("/symbols") { obj, error ->
             if (obj != null) {
                 lastSymbols = obj.optJSONArray("symbols") ?: JSONArray()
                 if (activePage == "assets") showPage("assets")
-                toast("تم تحميل ${lastSymbols.length()} رمز من كتالوج Quotex")
-            } else toast(error ?: "فشل تحميل رموز Quotex")
+                toast("تم تحميل ${lastSymbols.length()} رمز من كتالوج Deriv")
+            } else toast(error ?: "فشل تحميل رموز Deriv")
         }
     }
 
@@ -606,7 +606,7 @@ class MainActivity : Activity() {
         return bars
     }
 
-    private fun safeSymbol() = symbol.text.toString().trim().ifBlank { "EURUSD_otc" }
+    private fun safeSymbol() = symbol.text.toString().trim().ifBlank { "frxfrxEURUSD" }
     private fun encodedSymbol() = URLEncoder.encode(safeSymbol(), "UTF-8")
     private fun display(v: Any?): String = if (v == null || v == JSONObject.NULL) "--" else v.toString()
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
