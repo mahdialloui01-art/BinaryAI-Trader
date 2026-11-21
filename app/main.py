@@ -1,6 +1,6 @@
 import os
 from datetime import datetime, timezone
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Path
 from fastapi.responses import StreamingResponse
 import httpx
 import re
@@ -177,7 +177,7 @@ async def market_quality(
 
 
 @app.get("/deriv/{symbol}/contracts")
-async def deriv_contracts(symbol: str = Query(..., min_length=2, max_length=30, pattern="^[A-Za-z0-9_]+$")):
+async def deriv_contracts(symbol: str = Path(..., min_length=2, max_length=30, pattern="^[A-Za-z0-9_]+$")):
     """Return contract types Deriv currently lists for this underlying; no trade is placed."""
     try:
         return await data_service().reference_contracts(symbol)
