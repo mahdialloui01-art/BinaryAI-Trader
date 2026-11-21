@@ -27,6 +27,9 @@ class MarketDataService:
     async def reference_symbols(self):
         return await self.reference.symbols()
 
+    async def reference_contracts(self, symbol: str):
+        return await self.reference.contracts_for(symbol)
+
     async def reference_candles(self, symbol: str, interval: str = "1m", limit: int = 300):
         return await self.reference.candles(symbol, interval, limit)
 
