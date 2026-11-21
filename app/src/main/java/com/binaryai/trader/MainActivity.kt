@@ -283,13 +283,13 @@ class MainActivity : Activity() {
         addSection(page, "مختبر الاستراتيجيات")
         val intro = card()
         intro.addView(label("اختبار تاريخي منضبط", 16f, Color.WHITE, true))
-        intro.addView(label("يقيس المحرك الصفقات التي تقدمها له، ولا ينشئ حالياً استراتيجية دخول مستقلة. الاختبار يجب أن يكون زمنياً: تدريب ثم تحقق ثم اختبار لم يُستخدم في الضبط.", 12f, Color.WHITE))
+        intro.addView(label("محرك مستقل يحلل الشموع المغلقة عبر EMA وRSI وMACD وADX والزخم، ويقارن اتجاه 1m مع الأطر الأعلى. يصدر CALL أو PUT أو NO TRADE مع أسباب القرار.", 12f, Color.WHITE))
         page.addView(intro)
         addGap(page)
         val noSignal = card()
         noSignal.addView(label("حالة الاستراتيجية", 12f))
-        noSignal.addView(label("غير معتمدة  •  NO TRADE", 19f, Color.rgb(255,194,91), true))
-        noSignal.addView(label("لن نعرض نسبة نجاح تقديرية. يلزم سجل شموع كافٍ، قواعد دخول محددة، مدة انتهاء، عائد payout، ثم اختبار خارج العينة واختبار أمامي.", 11f))
+        noSignal.addView(label("القرار يتطلب توافقاً قوياً • 68/100 كحد أدنى", 19f, Color.rgb(255,194,91), true))
+        noSignal.addView(label("درجة التوافق ليست نسبة ربح. لا تعتمد أي إشارة قبل الاختبار التاريخي وخارج العينة والاختبار الأمامي.", 11f))
         page.addView(noSignal)
         addGap(page)
         page.addView(actionButton("قراءة إحصاءات التاريخ") { loadHistory() })
@@ -600,11 +600,14 @@ class MainActivity : Activity() {
     }
 
     private fun loadExampleSignal() {
-        request("/signals/example") { obj, error ->
+        request("/analysis/${encodedSymbol()}?interval=1m&limit=250") { obj, error ->
             if (obj != null) {
                 val decision = obj.optString("decision", "NO_TRADE")
-                toast("قرار المحرك: $decision")
-            } else toast(error ?: "تعذر جلب القرار")
+                val score = obj.optInt("score", 0)
+                val reason = obj.optJSONArray("blockers")?.optString(0).orEmpty()
+                val detail = if (reason.isNotBlank()) " • $reason" else ""
+                toast("تحليل ${safeSymbol()}: $decision | $score/100$detail")
+            } else toast(error ?: "تعذر تحليل الأصل")
         }
     }
 
