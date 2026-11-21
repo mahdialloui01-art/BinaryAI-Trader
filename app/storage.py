@@ -6,7 +6,7 @@ import sqlite3
 from pathlib import Path
 from typing import Any
 
-from app.feeds.normalization import parse_timestamp
+from app.feeds.normalization import candle_timestamp, parse_timestamp
 
 
 class CandleStore:
@@ -45,8 +45,7 @@ class CandleStore:
 
     @staticmethod
     def _timestamp(row: dict[str, Any]) -> str | None:
-        value = row.get("timestamp", row.get("time", row.get("time_utc")))
-        parsed = parse_timestamp(value)
+        parsed = candle_timestamp(row)
         return parsed.isoformat() if parsed else None
 
     def upsert(self, provider: str, symbol: str, interval: str,
