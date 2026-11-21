@@ -382,21 +382,18 @@ class MainActivity : Activity() {
 
     private fun loadQuality() {
         request("/market/${encodedSymbol()}/quality?interval=1m&limit=100") { obj, error ->
-            if (obj != null) {
-                updateQuality(obj)
-            } else if (::qualityText.isInitialized) qualityText.text = error ?: "تعذر فحص جودة المصدر"
+            if (obj != null) updateQuality(obj)
+            else if (::qualityText.isInitialized) qualityText.text = error ?: "تعذر فحص جودة المصدر"
         }
     }
 
     private fun updateQuality(obj: JSONObject) {
-                val flags = obj.optJSONArray("flags")
-                val list = if (flags == null || flags.length() == 0) "لا توجد ملاحظات" else
-                    (0 until flags.length()).joinToString("، ") { flags.optString(it) }
-                val statusLabel = obj.optString("status", "unknown").uppercase()
-                val details = "الحالة: $statusLabel\nعمر السعر: ${display(obj.opt("tick_age_seconds"))} ثانية\nعمر آخر شمعة: ${display(obj.opt("latest_candle_age_seconds"))} ثانية\nالشموع: ${obj.optInt("candles_received")}  •  فجوات تقديرية: ${obj.optInt("estimated_missing_bars")}\nتكرار التوقيت: ${obj.optInt("duplicate_timestamps")}  •  شموع OHLC غير سليمة: ${obj.optInt("invalid_ohlc_bars")}\nالملاحظات: $list"
-                if (::qualityText.isInitialized) qualityText.text = details
-            } else if (::qualityText.isInitialized) qualityText.text = error ?: "تعذر فحص جودة المصدر"
-        }
+        val flags = obj.optJSONArray("flags")
+        val list = if (flags == null || flags.length() == 0) "لا توجد ملاحظات" else
+            (0 until flags.length()).joinToString("، ") { flags.optString(it) }
+        val statusLabel = obj.optString("status", "unknown").uppercase()
+        val details = "الحالة: $statusLabel\nعمر السعر: ${display(obj.opt("tick_age_seconds"))} ثانية\nعمر آخر شمعة: ${display(obj.opt("latest_candle_age_seconds"))} ثانية\nالشموع: ${obj.optInt("candles_received")}  •  فجوات تقديرية: ${obj.optInt("estimated_missing_bars")}\nتكرار التوقيت: ${obj.optInt("duplicate_timestamps")}  •  شموع OHLC غير سليمة: ${obj.optInt("invalid_ohlc_bars")}\nالملاحظات: $list"
+        if (::qualityText.isInitialized) qualityText.text = details
     }
 
     private fun renderTick() {
