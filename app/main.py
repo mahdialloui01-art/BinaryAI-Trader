@@ -185,6 +185,15 @@ async def deriv_contracts(symbol: str = Path(..., min_length=2, max_length=30, p
         raise HTTPException(status_code=502, detail=f"Deriv contract catalogue unavailable: {exc}") from exc
 
 
+@app.get("/binary-options/{symbol}/contracts")
+async def binary_option_contracts(symbol: str = Path(..., min_length=2, max_length=30, pattern="^[A-Za-z0-9_]+$")):
+    """Return only binary-options contract types for the requested underlying."""
+    try:
+        return await data_service().reference.binary_contracts_for(symbol)
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Binary options contract check failed: {exc}") from exc
+
+
 @app.get("/deriv/stream")
 async def deriv_stream(symbol: str = Query(..., min_length=2, max_length=30, pattern="^[A-Za-z0-9_]+$")):
     """Stream public Deriv ticks as server-sent events; no account token required."""
