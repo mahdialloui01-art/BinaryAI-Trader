@@ -181,7 +181,7 @@ async def deriv_stream(symbol: str = Query(..., min_length=2, max_length=30, pat
     """Stream public Deriv ticks as server-sent events; no account token required."""
     async def relay():
         try:
-            yield "event: status\\ndata: " + __import__("json").dumps({"status":"connecting","provider":"deriv","symbol":symbol}) + "\\n\\n"
+            yield "event: status\ndata: " + __import__("json").dumps({"status":"connecting","provider":"deriv","symbol":symbol}) + "\n\n"
             async for tick in data_service().stream_reference_ticks(symbol):
                 yield "event: tick\\ndata: " + __import__("json").dumps(tick) + "\\n\\n"
         except Exception as exc:
@@ -260,7 +260,7 @@ async def quotex_candles(
     try:
         candles = await data_service().quotex_candles(symbol, timeframe_seconds, limit)
         return {
-            "provider": "otcharts",
+            "provider": "deriv",
             "venue": "quotex",
             "symbol": symbol,
             "market_kind": classify_market(symbol, "quotex"),
@@ -310,7 +310,7 @@ async def collect_candles(
         candles = await data_service().reference_candles(symbol.upper(), interval, limit)
         result = CandleStore().upsert("deriv", symbol.upper(), interval, candles)
         return {
-            "provider": "biquote",
+            "provider": "deriv",
             "symbol": symbol.upper(),
             "interval": interval,
             "received": len(candles),
