@@ -39,6 +39,17 @@ class DerivFeed:
             if item.get("symbol")
         ]
 
+    async def contracts_for(self, symbol: str):
+        msg = await self._request({"contracts_for": symbol}, "contracts_for")
+        payload = msg.get("contracts_for", {})
+        return {
+            "provider": self.name,
+            "symbol": symbol,
+            "available": payload.get("available", []),
+            "trading_period": payload.get("trading_period", []),
+            "underlying": payload.get("underlying"),
+        }
+
     async def candles(self, symbol: str, interval: str = "1m", limit: int = 300):
         granularity = GRANULARITY.get(interval)
         if not granularity:
