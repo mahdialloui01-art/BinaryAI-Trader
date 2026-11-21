@@ -367,7 +367,7 @@ class MainActivity : Activity() {
                     chosen = item; break
                 }
             }
-            if (chosen == null) chosen = (0 until lastSymbols.length()).mapNotNull { lastSymbols.optJSONObject(it) }.firstOrNull { it.optString("symbol").equals("frxfrxEURUSD", true) } ?: lastSymbols.optJSONObject(0)
+            if (chosen == null) chosen = (0 until lastSymbols.length()).mapNotNull { lastSymbols.optJSONObject(it) }.firstOrNull { it.optString("symbol").equals("frxEURUSD", true) } ?: lastSymbols.optJSONObject(0)
             val exact = chosen?.optString("symbol").orEmpty()
             if (exact.isBlank()) {
                 status.text = "● معرّف الرمز غير صالح"; status.setTextColor(red); return@request
@@ -443,7 +443,7 @@ class MainActivity : Activity() {
         val epoch = tick.optLong("time", 0L)
         val stamp = if (epoch > 0L) java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date(epoch * 1000L)) else ""
         lastStreamTickAt = System.currentTimeMillis()
-        val normalized = JSONObject().put("provider", "otcharts").put("venue", "quotex").put("symbol", tick.optString("symbol", safeSymbol())).put("price", price).put("mid", price).put("timestamp", stamp).put("stale", false).put("stream", "deriv_sse")
+        val normalized = JSONObject().put("provider", "deriv").put("symbol", tick.optString("symbol", safeSymbol())).put("price", price).put("mid", price).put("timestamp", stamp).put("stale", false).put("stream", "deriv_sse")
         runOnUiThread {
             lastTick = normalized
             if (::marketText.isInitialized && activePage == "home") renderTick()
@@ -606,7 +606,7 @@ class MainActivity : Activity() {
         return bars
     }
 
-    private fun safeSymbol() = symbol.text.toString().trim().ifBlank { "frxfrxEURUSD" }
+    private fun safeSymbol() = symbol.text.toString().trim().ifBlank { "frxEURUSD" }
     private fun encodedSymbol() = URLEncoder.encode(safeSymbol(), "UTF-8")
     private fun display(v: Any?): String = if (v == null || v == JSONObject.NULL) "--" else v.toString()
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
