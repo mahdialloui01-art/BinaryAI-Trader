@@ -367,7 +367,7 @@ class MainActivity : Activity() {
                     chosen = item; break
                 }
             }
-            if (chosen == null) chosen = (0 until lastSymbols.length()).mapNotNull { lastSymbols.optJSONObject(it) }.firstOrNull { it.optString("symbol").equals("frxEURUSD", true) } ?: lastSymbols.optJSONObject(0)
+            if (chosen == null) chosen = (0 until lastSymbols.length()).mapNotNull { lastSymbols.optJSONObject(it) }.firstOrNull { it.optString("symbol").equals("1HZ100V", true) } ?: (0 until lastSymbols.length()).mapNotNull { lastSymbols.optJSONObject(it) }.firstOrNull { it.optBoolean("exchange_is_open", false) && (it.optString("market_display_name") + it.optString("market")).contains("synthetic", true) } ?: (0 until lastSymbols.length()).mapNotNull { lastSymbols.optJSONObject(it) }.firstOrNull { it.optBoolean("exchange_is_open", false) } ?: lastSymbols.optJSONObject(0)
             val exact = chosen?.optString("symbol").orEmpty()
             if (exact.isBlank()) {
                 status.text = "● معرّف الرمز غير صالح"; status.setTextColor(red); return@request
@@ -375,6 +375,7 @@ class MainActivity : Activity() {
             symbol.setText(exact)
             getSharedPreferences("binaryai", MODE_PRIVATE).edit().putString("symbol", exact).apply()
             loadDerivCandles(exact)
+            loadDerivContracts(exact)
             startTickStream()
         }
     }
@@ -453,6 +454,31 @@ class MainActivity : Activity() {
             if (::marketText.isInitialized && activePage == "home") renderTick()
             if (::status.isInitialized) { status.text = "● Tick Deriv حي — ${tick.optString("symbol", safeSymbol())} — ${stamp.ifBlank { "وقت المزود غير متاح" }}"; status.setTextColor(mint) }
             updateLiveCandle(price, stamp)
+        }
+    }
+
+    private fun loadDerivContracts(selected: String) {
+        val encoded = URLEncoder.encode(selected, "UTF-8")
+        request("/deriv/$encoded/contracts") { obj, error ->
+            if (obj != null) {
+                val contracts = obj.optJSONArray("available") ?: JSONArray()
+                val names = ArrayList<String>()
+                for (i in 0 until contracts.length()) {
+                    val item = contracts.optJSONObject(i) ?: continue
+                    val label = item.optString("contract_display", item.optString("contract_type", item.optString("contract_category", "")))
+                    if (label.isNotBlank()) names.add(label)
+                }
+                if (::status.isInitialized && names.isEmpty()) {
+                    status.text = "● $selected: Deriv لم يعرض عقود خيارات متاحة حالياً"
+                    status.setTextColor(Color.rgb(255,194,91))
+                } else if (::status.isInitialized) {
+                    status.text = "● $selected: ${names.size} أنواع عقود خيارات متاحة على Deriv"
+                    status.setTextColor(mint)
+                }
+            } else if (::status.isInitialized) {
+                status.text = "● تعذر التحقق من عقود الخيارات: ${error ?: "خطأ"}"
+                status.setTextColor(red)
+            }
         }
     }
 
@@ -610,7 +636,7 @@ class MainActivity : Activity() {
         return bars
     }
 
-    private fun safeSymbol() = symbol.text.toString().trim().ifBlank { "frxEURUSD" }
+    private fun safeSymbol() = symbol.text.toString().trim().ifBlank { "1HZ100V" }
     private fun encodedSymbol() = URLEncoder.encode(safeSymbol(), "UTF-8")
     private fun display(v: Any?): String = if (v == null || v == JSONObject.NULL) "--" else v.toString()
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_LONG).show()
