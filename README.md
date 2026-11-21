@@ -14,7 +14,9 @@ Independent binary-options research and signal-analysis platform. This repositor
 - Provider health and symbol-catalogue endpoints.
 - Conservative OTC symbol classification.
 - UTC timestamp alignment and candle comparison diagnostics.
-- Signal research only: CALL / PUT / NO_TRADE.
+- Professional multi-factor binary-options research engine: EMA trend structure, swing/BOS market structure, liquidity sweeps, FVG, candle rejection/engulfing patterns, MACD/RSI/ADX/DI, ATR/Bollinger volatility regime and two higher-timeframe confirmations.
+- Closed-candle and timestamp-quality gates; stale, gapped, conflicting or weak setups fail closed to NO_TRADE.
+- Walk-forward replay using close-time decisions, next-candle OPEN entries and expiry CLOSE settlements, with chronological train/validation/test reports.
 - Local SQLite historical candle cache with upsert/deduplication.
 - Collection and replay endpoints for stored reference candles.
 - Expiry-aware CALL/PUT backtest evaluator with tie handling, payout P&L, losing streaks, drawdown and chronological splits.
@@ -50,7 +52,9 @@ API docs: http://127.0.0.1:8000/docs
 - `GET /history/{symbol}/candles?provider=deriv&interval=1m` — replay locally stored candles.
 - `GET /history/stats` — local cache counts.
 - `POST /research/evaluate` — evaluate supplied historical CALL/PUT entries against OHLC candles; returns win/loss/tie counts, payout-adjusted P&L, expectancy, losing streak, drawdown and train/validation/test summaries.
-- `GET /signals/example` — explicit NO_TRADE placeholder until a strategy passes validation.
+- `GET /analysis/{symbol}?interval=1m&limit=250` — explainable multi-factor CALL/PUT/NO_TRADE analysis with module scores, blockers, structure, liquidity and higher-timeframe state.
+- `GET /research/walk-forward/{symbol}?interval=1m&limit=1500&payout=0.8&expiry_bars=1` — replays the production signal rules without lookahead, then reports payout-adjusted results and chronological splits.
+- `GET /signals/example` — static NO_TRADE placeholder; not the production analysis endpoint.
 
 ### Research evaluator input
 Send chronological candles and a separate list of explicit trade entries. `entry_index` identifies the candle whose OPEN is used as entry; `expiry_bars=1` settles at that candle's CLOSE. Example:
@@ -66,10 +70,10 @@ Send chronological candles and a separate list of explicit trade entries. `entry
   "tie_rule": "refund"
 }
 ```
-The evaluator measures entries supplied by the caller; it does **not** create signals or prove a strategy has an edge. The chronological split is based on candle index, and forward validation still requires genuinely unseen data.
+The evaluator measures entries supplied by the caller; it does **not** create signals or prove a strategy has an edge. The walk-forward endpoint generates signals from historical data using only candles available at each decision time, enters on the next candle OPEN, and settles at the configured expiry candle CLOSE. It reports sample-size warnings; a positive backtest is not proof of a live edge. The chronological split is based on candle index, and forward validation still requires genuinely unseen data.
 
 ## Android client
-The Android 0.4.0 client includes a dashboard, selectable symbol catalogue, 1-minute candlestick chart, reference-price panel, feed-quality diagnostics, historical cache controls, and a strategy-research status page. The app requires the HTTPS URL of a deployed BinaryAI API.
+The Android client includes a dashboard, selectable Deriv binary-options underlyings, 1-minute chart, live reference-price stream, feed-quality diagnostics, history cache controls, a detailed professional analysis report, and a walk-forward validation report. The app requires the HTTPS URL of a deployed BinaryAI API.
 
 ## Validation roadmap
 1. Verify API payloads against live provider responses.
