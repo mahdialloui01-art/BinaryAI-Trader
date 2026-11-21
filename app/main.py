@@ -70,7 +70,7 @@ async def symbols():
     try:
         items = await data_service().reference_symbols()
         return {
-            "provider": "biquote",
+            "provider": "deriv",
             "count": len(items),
             "symbols": [
                 {**item, "market_kind": classify_market(str(item.get("symbol", item.get("name", ""))))}
@@ -99,7 +99,7 @@ async def market_candles(
     try:
         candles = await data_service().reference_candles(symbol.upper(), interval, limit)
         return {
-            "provider": "biquote",
+            "provider": "deriv",
             "symbol": symbol.upper(),
             "market_kind": classify_market(symbol),
             "candles": candles,
@@ -176,12 +176,27 @@ async def market_quality(
         raise HTTPException(status_code=502, detail=f"Feed quality check failed: {exc}") from exc
 
 
+@app.get("/deriv/stream")
+async def deriv_stream(symbol: str = Query(..., min_length=2, max_length=30, pattern="^[A-Za-z0-9_]+$")):
+    """Stream public Deriv ticks as server-sent events; no account token required."""
+    async def relay():
+        try:
+            yield "event: status\\ndata: " + __import__("json").dumps({"status":"connecting","provider":"deriv","symbol":symbol}) + "\\n\\n"
+            async for tick in data_service().stream_reference_ticks(symbol):
+                yield "event: tick\\ndata: " + __import__("json").dumps(tick) + "\\n\\n"
+        except Exception as exc:
+            yield "event: error\\ndata: " + __import__("json").dumps({"provider":"deriv","symbol":symbol,"error":str(exc)}) + "\\n\\n"
+    return StreamingResponse(relay(), media_type="text/event-stream", headers={
+        "Cache-Control":"no-cache, no-transform", "Connection":"keep-alive", "X-Accel-Buffering":"no"
+    })
+
+
 @app.get("/quotex/symbols")
 async def quotex_symbols():
     """Return the exact live Quotex catalogue exposed by the optional provider."""
     service = data_service()
     if not service.quotex:
-        raise HTTPException(status_code=503, detail="OTCharts is not configured; the free BiQuote reference feed is separate.")
+        raise HTTPException(status_code=503, detail="OTCharts is not configured; the free Deriv public market feed is separate.")
     try:
         return await service.quotex_symbols()
     except httpx.HTTPStatusError as exc:
@@ -200,7 +215,7 @@ async def quotex_stream(symbols: str = Query(..., min_length=1, max_length=1000)
         raise HTTPException(status_code=400, detail="Invalid symbol ID; use exact IDs from /quotex/symbols.")
     service = data_service()
     if not service.quotex:
-        raise HTTPException(status_code=503, detail="OTCharts is not configured; BiQuote real-market data is not Quotex OTC.")
+        raise HTTPException(status_code=503, detail="OTCharts is not configured; Deriv public market data is not Quotex OTC.")
     try:
         upstream_client, upstream_response = await service.open_quotex_stream(requested)
     except httpx.HTTPStatusError as exc:
@@ -310,7 +325,7 @@ async def collect_candles(
 @app.get("/history/{symbol}/candles")
 async def historical_candles(
     symbol: str,
-    provider: str = Query(default="biquote", pattern="^(biquote|otcharts)$"),
+    provider: str = Query(default="deriv", pattern="^(deriv|biquote|otcharts)$"),
     interval: str = Query(default="1m", pattern="^(1m|5m|15m|30m|1h|4h|1d)$"),
     limit: int = Query(default=500, ge=1, le=10000),
     since: str | None = Query(default=None),
@@ -334,7 +349,7 @@ async def historical_candles(
 @app.get("/history/stats")
 async def history_stats():
     store = CandleStore()
-    return {"stored_candles": store.count(), "biquote_candles": store.count("biquote")}
+    return {"stored_candles": store.count(), "deriv_candles": store.count("deriv"), "legacy_biquote_candles": store.count("deriv")}
 
 
 @app.get("/signals/example", response_model=SignalDecision)
