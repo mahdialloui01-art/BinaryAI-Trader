@@ -18,6 +18,13 @@ class ResearchEvaluationRequest(BaseModel):
     train_fraction: float = Field(default=0.60, gt=0, lt=1)
     validation_fraction: float = Field(default=0.20, gt=0, lt=1)
 
+app = FastAPI(
+    title="BinaryAI-Trader API",
+    version="0.3.0",
+    description="Free-first, read-only market-data research API. No live execution.",
+)
+
+
 @app.post("/research/evaluate")
 async def research_evaluate(request: ResearchEvaluationRequest):
     try:
@@ -28,13 +35,6 @@ async def research_evaluate(request: ResearchEvaluationRequest):
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
-
-
-app = FastAPI(
-    title="BinaryAI-Trader API",
-    version="0.3.0",
-    description="Free-first, read-only market-data research API. No live execution.",
-)
 
 
 def data_service():
