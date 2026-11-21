@@ -410,10 +410,23 @@ async def binary_analysis(
     service = data_service()
     try:
         frames = [interval, *higher_map[interval]]
-        results = await asyncio.gather(*[
-            service.reference_candles(symbol.upper(), tf, limit if tf == interval else 120)
-            for tf in frames
-        ])
+        contract_check, results = await asyncio.gather(
+            service.reference.binary_contracts_for(symbol.upper()),
+            asyncio.gather(*[
+                service.reference_candles(symbol.upper(), tf, limit if tf == interval else 120)
+                for tf in frames
+            ]),
+        )
+        if not contract_check.get("binary_options_available"):
+            return {
+                "symbol": symbol.upper(), "provider": "deriv", "decision": "NO_TRADE",
+                "candidate": "NO_TRADE", "score": 0, "confidence": 0,
+                "status": "no_binary_contract", "execution_enabled": False,
+                "engine_version": "2.0.0", "score_is_probability": False,
+                "rationale": ["Deriv لا يعرض حالياً عقد Binary Options متاحاً لهذا الأصل."],
+                "blockers": ["NO_AVAILABLE_BINARY_OPTIONS_CONTRACT"],
+                "available_contracts": 0,
+            }
         now = datetime.now(timezone.utc)
 
         def closed(rows, tf):
@@ -427,7 +440,10 @@ async def binary_analysis(
 
         base = closed(results[0], interval)
         higher = {tf: closed(rows, tf) for tf, rows in zip(frames[1:], results[1:])}
-        return analyze_binary_options(base, symbol.upper(), interval, higher)
+        report = analyze_binary_options(base, symbol.upper(), interval, higher)
+        report["binary_contracts_available"] = len(contract_check.get("available", []))
+        report["binary_options_available"] = True
+        return report
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Binary analysis failed: {exc}") from exc
 
