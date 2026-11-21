@@ -10,3 +10,7 @@ __pycache__/
 htmlcov/
 dist/
 build/
+data/
+*.db
+*.sqlite
+*.sqlite3
