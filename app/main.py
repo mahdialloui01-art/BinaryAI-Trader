@@ -1,8 +1,11 @@
 import os
 from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import StreamingResponse
+import httpx
+import re
 from app.feeds.service import MarketDataService
-from app.feeds.normalization import align_candles, classify_market, parse_timestamp
+from app.feeds.normalization import align_candles, candle_timestamp, classify_market, parse_timestamp
 from app.models import SignalDecision
 from app.storage import CandleStore
 
@@ -126,7 +129,7 @@ async def market_quality(
         stamps = []
         invalid_ohlc = 0
         for candle in candles:
-            stamp = parse_timestamp(candle.get("timestamp", candle.get("time", candle.get("time_utc"))))
+            stamp = candle_timestamp(candle)
             if stamp:
                 stamps.append(stamp)
             try:
@@ -171,6 +174,66 @@ async def market_quality(
         }
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Feed quality check failed: {exc}") from exc
+
+
+@app.get("/quotex/symbols")
+async def quotex_symbols():
+    """Return the exact live Quotex catalogue exposed by the optional provider."""
+    service = data_service()
+    if not service.quotex:
+        raise HTTPException(status_code=503, detail="OTCharts is not configured; the free BiQuote reference feed is separate.")
+    try:
+        return await service.quotex_symbols()
+    except httpx.HTTPStatusError as exc:
+        raise HTTPException(status_code=503, detail=f"OTCharts rejected the catalogue request (HTTP {exc.response.status_code}). Check key, selected book and plan.") from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"OTCharts catalogue unavailable: {exc}") from exc
+
+
+@app.get("/quotex/stream")
+async def quotex_stream(symbols: str = Query(..., min_length=1, max_length=1000)):
+    """Proxy genuine OTCharts SSE ticks; the API key stays on the backend."""
+    requested = [item.strip() for item in symbols.split(",") if item.strip()]
+    if not requested or len(requested) > 50:
+        raise HTTPException(status_code=400, detail="Provide between 1 and 50 comma-separated symbol IDs.")
+    if any(not re.fullmatch(r"[A-Za-z0-9_#.-]{1,80}", item) for item in requested):
+        raise HTTPException(status_code=400, detail="Invalid symbol ID; use exact IDs from /quotex/symbols.")
+    service = data_service()
+    if not service.quotex:
+        raise HTTPException(status_code=503, detail="OTCharts is not configured; BiQuote real-market data is not Quotex OTC.")
+    try:
+        upstream_client, upstream_response = await service.open_quotex_stream(requested)
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        detail = "OTCharts refused the live stream. The free tier has no live streams; verify plan, venue access and stream allowance."
+        if status == 401:
+            detail = "OTCharts key is invalid, revoked or the account email is unconfirmed."
+        elif status == 429:
+            detail = "OTCharts stream/request limit reached; check the plan's stream allowance and retry-after."
+        elif status == 502:
+            detail = "OTCharts upstream venue is temporarily unavailable."
+        raise HTTPException(status_code=503 if status in (401, 403, 429) else 502, detail=detail) from exc
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Could not open OTCharts live stream: {exc}") from exc
+
+    async def relay():
+        try:
+            async for chunk in upstream_response.aiter_raw():
+                if chunk:
+                    yield chunk
+        finally:
+            await upstream_response.aclose()
+            await upstream_client.aclose()
+
+    return StreamingResponse(
+        relay(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 @app.get("/quotex/{symbol}/candles")
