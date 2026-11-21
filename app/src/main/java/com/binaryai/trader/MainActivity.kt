@@ -391,7 +391,7 @@ class MainActivity : Activity() {
                     }
                     override fun onMessage(webSocket: WebSocket, text: String) {
                         try {
-                            text.split('\\u001e').filter { it.isNotBlank() }.forEach { frame ->
+                            text.split('\u001e').filter { it.isNotBlank() }.forEach { frame ->
                                 val packet = JSONObject(frame)
                                 if (!streamHandshakeDone && packet.length() == 0) {
                                     streamHandshakeDone = true
