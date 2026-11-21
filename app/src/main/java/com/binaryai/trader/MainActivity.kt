@@ -242,8 +242,11 @@ class MainActivity : Activity() {
         page.addView(actions)
         addSection(page, "قرار المحرك")
         val signal = card()
-        signal.addView(label("NO TRADE", 20f, Color.rgb(255, 194, 91), true))
-        signal.addView(label("لا توجد حالياً استراتيجية اجتازت التحقق التاريخي والاختبار الأمامي. لن نخترع إشارة CALL أو PUT.", 12f, Color.WHITE))
+        signal.addView(label("توقع الاتجاه حسب الأفق الزمني", 14f, Color.WHITE, true))
+        if (lastAnalysis.length() > 0) renderHorizonForecasts(signal, lastAnalysis)
+        else signal.addView(label("شغّل التحليل لعرض الاتجاه المرجّح بعد دقيقة ودقيقتين و5 دقائق.", 12f, Color.WHITE))
+        addGap(signal, 8)
+        signal.addView(actionButton("تحليل اتجاهات 1 / 2 / 5 دقائق") { loadExampleSignal() })
         page.addView(signal)
         addGap(page)
         page.addView(label("وضع البحث فقط • لا تسجيل دخول Deriv • لا تنفيذ صفقات • لا ضمان أرباح", 10f))
@@ -313,6 +316,49 @@ class MainActivity : Activity() {
         page.addView(label("التنفيذ الآلي غير مفعّل. هذا المحرك يدرس عقود Binary Options على بيانات Deriv فقط، ولا يرسل أوامر تداول.", 11f))
     }
 
+
+    private fun renderHorizonForecasts(target: LinearLayout, data: JSONObject) {
+        val forecasts = data.optJSONObject("horizon_forecasts")
+        if (forecasts == null) {
+            target.addView(label("توقعات الآفاق الزمنية غير متاحة في هذا التقرير.", 11f, muted))
+            return
+        }
+        target.addView(label("الاتجاه المتوقع من إغلاق آخر شمعة — كل أفق يُحسب بأدلته", 11f, muted, true))
+        for (key in listOf("1m", "2m", "5m")) {
+            val item = forecasts.optJSONObject(key) ?: continue
+            val decision = item.optString("decision", "NO_TRADE")
+            val score = item.optInt("score", 0)
+            val tint = when (decision) { "CALL" -> mint; "PUT" -> red; else -> Color.rgb(255,194,91) }
+            val box = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(12), dp(10), dp(12), dp(10))
+                setBackgroundColor(Color.rgb(23, 37, 57))
+            }
+            val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+            head.addView(label(when (key) { "1m" -> "بعد دقيقة"; "2m" -> "بعد دقيقتين"; else -> "بعد 5 دقائق" }, 13f, Color.WHITE, true), LinearLayout.LayoutParams(0, -2, 1f))
+            head.addView(label(decision, 16f, tint, true))
+            box.addView(head)
+            box.addView(label("توافق الأدلة: $score/100  •  CALL ${item.optInt("long_score")} / PUT ${item.optInt("short_score")}", 11f, tint, true))
+            val evidence = item.optJSONArray("evidence")
+            if (evidence != null) {
+                val parts = ArrayList<String>()
+                for (i in 0 until evidence.length()) {
+                    val ev = evidence.optJSONObject(i) ?: continue
+                    if (ev.optString("direction") != "NEUTRAL") parts.add(ev.optString("module") + ": " + ev.optString("direction"))
+                }
+                box.addView(label(if (parts.isEmpty()) "لا توجد أدلة اتجاهية كافية." else parts.joinToString("  •  "), 10f, muted))
+            }
+            val blockers = item.optJSONArray("blockers")
+            if (blockers != null && blockers.length() > 0) {
+                val reasons = (0 until blockers.length()).joinToString("، ") { blockers.optString(it) }
+                box.addView(label("سبب الامتناع: $reasons", 10f, Color.rgb(255,194,91)))
+            }
+            target.addView(box)
+            addGap(target, 7)
+        }
+        target.addView(label("هذه توقعات بحثية وليست نسبة نجاح. عند ضعف البيانات أو تعارض الأدلة تظهر NO TRADE.", 10f, Color.rgb(255,194,91)))
+    }
+
     private fun renderAnalysisReport(target: LinearLayout, data: JSONObject) {
         if (data.length() == 0) {
             target.addView(label("لم يتم تشغيل التحليل بعد.", 12f))
@@ -322,6 +368,7 @@ class MainActivity : Activity() {
         val score = data.optInt("score", 0)
         val color = if (decision == "CALL") mint else if (decision == "PUT") red else Color.rgb(255,194,91)
         target.addView(label("$decision  •  $score/100", 24f, color, true))
+        renderHorizonForecasts(target, data)
         target.addView(label("الأصل: ${data.optString("symbol")}  |  الإطار: ${data.optString("interval")}  |  المحرك: ${data.optString("engine_version")}", 10f))
         target.addView(label("CALL: ${data.optInt("long_score")}  |  PUT: ${data.optInt("short_score")}  |  هامش الاتجاه: ${data.optInt("directional_margin")}", 12f, Color.WHITE))
         val mtf = data.optJSONObject("higher_timeframes")
