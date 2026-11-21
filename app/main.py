@@ -422,7 +422,7 @@ async def binary_analysis(
                 "symbol": symbol.upper(), "provider": "deriv", "decision": "NO_TRADE",
                 "candidate": "NO_TRADE", "score": 0, "confidence": 0,
                 "status": "no_binary_contract", "execution_enabled": False,
-                "engine_version": "2.0.0", "score_is_probability": False,
+                "engine_version": "2.1.0", "score_is_probability": False,
                 "rationale": ["Deriv لا يعرض حالياً عقد Binary Options متاحاً لهذا الأصل."],
                 "blockers": ["NO_AVAILABLE_BINARY_OPTIONS_CONTRACT"],
                 "available_contracts": 0,
