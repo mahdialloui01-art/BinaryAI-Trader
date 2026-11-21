@@ -44,7 +44,7 @@ def test_bad_ohlc_rejected(candles):
 def test_chronological_splits_and_loss_streak(candles):
     result = evaluate_binary_trades(candles, [
         {"direction": "PUT", "entry_index": 0},
-        {"direction": "PUT", "entry_index": 1},
+        {"direction": "CALL", "entry_index": 1},
         {"direction": "CALL", "entry_index": 2},
     ])
     assert result["overall"]["max_consecutive_losses"] == 2
