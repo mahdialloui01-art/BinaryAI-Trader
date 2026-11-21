@@ -323,7 +323,7 @@ class MainActivity : Activity() {
             target.addView(label("توقعات الآفاق الزمنية غير متاحة في هذا التقرير.", 11f, muted))
             return
         }
-        target.addView(label("الاتجاه المتوقع من إغلاق آخر شمعة — كل أفق يُحسب بأدلته", 11f, muted, true))
+        target.addView(label("بطاقات القرار المباشر — توقيت الجزائر (UTC+1)", 12f, muted, true))
         for (key in listOf("1m", "2m", "5m")) {
             val item = forecasts.optJSONObject(key) ?: continue
             val decision = item.optString("decision", "NO_TRADE")
@@ -331,14 +331,27 @@ class MainActivity : Activity() {
             val tint = when (decision) { "CALL" -> mint; "PUT" -> red; else -> Color.rgb(255,194,91) }
             val box = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
-                setPadding(dp(12), dp(10), dp(12), dp(10))
+                setPadding(dp(14), dp(13), dp(14), dp(13))
                 setBackgroundColor(Color.rgb(23, 37, 57))
             }
             val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-            head.addView(label(when (key) { "1m" -> "بعد دقيقة"; "2m" -> "بعد دقيقتين"; else -> "بعد 5 دقائق" }, 13f, Color.WHITE, true), LinearLayout.LayoutParams(0, -2, 1f))
-            head.addView(label(decision, 16f, tint, true))
+            head.addView(label(when (key) { "1m" -> "مدة 1 دقيقة"; "2m" -> "مدة دقيقتين"; else -> "مدة 5 دقائق" }, 14f, Color.WHITE, true), LinearLayout.LayoutParams(0, -2, 1f))
+            head.addView(label(decision, 18f, tint, true))
             box.addView(head)
-            box.addView(label("توافق الأدلة: $score/100  •  CALL ${item.optInt("long_score")} / PUT ${item.optInt("short_score")}", 11f, tint, true))
+            box.addView(label("قوة توافق التحليل: $score/100", 12f, tint, true))
+            val entryStatus = item.optString("entry_status", "CANCELLED_OR_WAITING")
+            val entryRaw = item.optString("entry_time_algeria", "")
+            val expiryRaw = item.optString("expiry_time_algeria", "")
+            if (decision == "CALL" || decision == "PUT") {
+                box.addView(label("وقت الدخول: ${formatSignalTime(entryRaw)}", 16f, Color.WHITE, true))
+                box.addView(label("وقت الانتهاء: ${formatSignalTime(expiryRaw)}", 13f, mint, true))
+                box.addView(label("صلاحية الإشارة: 5 ثوانٍ من لحظة إصدارها — أعد التحليل إذا انتهت.", 10f, Color.rgb(255,194,91)))
+            } else {
+                box.addView(label("الدخول: انتظار تأكيد حي — لا تدخل الآن", 12f, Color.rgb(255,194,91), true))
+            }
+            val historical = historicalWinRateLabel(data.optString("symbol"), data.optString("interval"))
+            box.addView(label(historical, 11f, Color.WHITE, true))
+            box.addView(label("الحالة: " + if (entryStatus == "LIVE_TICK_CONFIRMED") "تأكيد Tick حي" else "انتظار / إلغاء الإشارة", 10f, if (entryStatus == "LIVE_TICK_CONFIRMED") mint else muted))
             val evidence = item.optJSONArray("evidence")
             if (evidence != null) {
                 val parts = ArrayList<String>()
@@ -354,9 +367,34 @@ class MainActivity : Activity() {
                 box.addView(label("سبب الامتناع: $reasons", 10f, Color.rgb(255,194,91)))
             }
             target.addView(box)
-            addGap(target, 7)
+            addGap(target, 8)
         }
-        target.addView(label("هذه توقعات بحثية وليست نسبة نجاح. عند ضعف البيانات أو تعارض الأدلة تظهر NO TRADE.", 10f, Color.rgb(255,194,91)))
+        target.addView(label("مهم: قوة التوافق ليست نسبة نجاح. نسبة النجاح المعروضة أدناه تاريخية من اختبار مستقل، وليست توقعاً مضموناً للصفقة الحالية.", 10f, Color.rgb(255,194,91)))
+    }
+
+    private fun formatSignalTime(raw: String): String {
+        if (raw.isBlank() || raw == "null") return "غير متاح"
+        return try {
+            val date = raw.substring(0, 10)
+            val time = raw.substring(11, 19)
+            "$date  $time"
+        } catch (_: Exception) { raw }
+    }
+
+    private fun historicalWinRateLabel(symbolName: String, intervalName: String): String {
+        if (lastWalkForward.length() == 0 ||
+            !lastWalkForward.optString("symbol").equals(symbolName, true) ||
+            !lastWalkForward.optString("interval").equals(intervalName, true)) {
+            return "نسبة النجاح التاريخية: شغّل اختبار Walk-forward لهذا الأصل أولاً"
+        }
+        val test = lastWalkForward.optJSONObject("chronological_splits")?.optJSONObject("test")
+        val trades = test?.optInt("trades", 0) ?: 0
+        val rate = test?.opt("win_rate_excluding_ties")
+        if (trades < 30 || rate == null || rate == JSONObject.NULL) {
+            return "نسبة النجاح التاريخية: عينة الاختبار غير كافية ($trades صفقة)"
+        }
+        val pct = (rate.toString().toDoubleOrNull() ?: return "نسبة النجاح التاريخية: غير متاحة") * 100.0
+        return "نجاح تاريخي في عينة الاختبار: " + String.format(java.util.Locale.US, "%.1f", pct) + "%  •  $trades صفقة"
     }
 
     private fun renderAnalysisReport(target: LinearLayout, data: JSONObject) {
