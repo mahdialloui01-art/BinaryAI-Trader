@@ -313,7 +313,8 @@ class MainActivity : Activity() {
             if (obj != null) { lastTick = obj; if (activePage == "home") renderTick() }
             else toast("تعذر جلب السعر: " + (error ?: "خطأ"))
         }
-        loadQuality()\n        request("/market/${encodedSymbol()}/candles?interval=1m&limit=100") { obj, error ->
+        loadQuality()
+        request("/market/${encodedSymbol()}/candles?interval=1m&limit=100") { obj, error ->
             if (obj != null) {
                 lastCandles = extractCandles(obj)
                 if (activePage == "home" && ::chart.isInitialized) chart.setCandles(lastCandles)
