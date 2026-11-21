@@ -422,7 +422,7 @@ class MainActivity : Activity() {
                                     } else if (packet.optInt("type") == 1 && target == "ReceiveSubscriptionState") {
                                         val args = packet.optJSONArray("arguments")
                                         val state = args?.optJSONObject(0) ?: args?.optJSONArray(0)?.optJSONObject(0)
-                                        val marketState = state?.optString("marketState", state.optString("state", "unknown")) ?: "unknown"
+                                        val marketState = state?.optString("marketState")?.takeIf { it.isNotBlank() } ?: state?.optString("state") ?: "unknown"
                                         runOnUiThread { if (::status.isInitialized && lastStreamTickAt == 0L) { status.text = "● الاشتراك فعّال — حالة السوق: $marketState"; status.setTextColor(Color.rgb(255,194,91)) } }
                                     } else if (packet.optInt("type") == 3) {
                                         val error = packet.optString("error")
@@ -483,7 +483,7 @@ class MainActivity : Activity() {
         val openTime = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date(bucket))
         val lastIndex = lastCandles.length() - 1
         val last = if (lastIndex >= 0) lastCandles.optJSONObject(lastIndex) else null
-        val lastTime = last?.optString("openTime", last.optString("timestamp", "")) ?: ""
+        val lastTime = last?.optString("openTime")?.takeIf { it.isNotBlank() } ?: last?.optString("timestamp") ?: ""
         val lastBucket = try { parser.parse(lastTime.take(19))?.time?.div(60000L)?.times(60000L) ?: -1L } catch (_: Exception) { -1L }
         if (last == null || lastBucket != bucket) {
             val candle = JSONObject().put("openTime", openTime).put("open", price).put("high", price)
