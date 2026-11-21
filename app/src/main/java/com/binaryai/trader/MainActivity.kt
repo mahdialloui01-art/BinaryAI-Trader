@@ -67,6 +67,8 @@ class MainActivity : Activity() {
     private var lastHealth = JSONObject()
     private var lastSymbols = JSONArray()
     private var lastHistory = JSONObject()
+    private var lastAnalysis = JSONObject()
+    private var lastWalkForward = JSONObject()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -280,23 +282,100 @@ class MainActivity : Activity() {
     }
 
     private fun buildLab() {
-        addSection(page, "مختبر الاستراتيجيات")
+        addSection(page, "محرك التحليل الاحترافي")
         val intro = card()
-        intro.addView(label("اختبار تاريخي منضبط", 16f, Color.WHITE, true))
-        intro.addView(label("محرك مستقل يحلل الشموع المغلقة عبر EMA وRSI وMACD وADX والزخم، ويقارن اتجاه 1m مع الأطر الأعلى. يصدر CALL أو PUT أو NO TRADE مع أسباب القرار.", 12f, Color.WHITE))
+        intro.addView(label("BinaryAI Research Engine 2.0", 16f, Color.WHITE, true))
+        intro.addView(label("تحليل متعدد الطبقات للشموع المغلقة: اتجاه وبنية السوق BOS، سحب السيولة، FVG، حركة السعر، الزخم، RSI وMACD وADX وATR، Bollinger، وتوافق إطارين أعلى. لا يصدر قراراً عند ضعف البيانات أو تعارض الأدلة.", 12f, Color.WHITE))
         page.addView(intro)
         addGap(page)
-        val noSignal = card()
-        noSignal.addView(label("حالة الاستراتيجية", 12f))
-        noSignal.addView(label("القرار يتطلب توافقاً قوياً • 68/100 كحد أدنى", 19f, Color.rgb(255,194,91), true))
-        noSignal.addView(label("درجة التوافق ليست نسبة ربح. لا تعتمد أي إشارة قبل الاختبار التاريخي وخارج العينة والاختبار الأمامي.", 11f))
-        page.addView(noSignal)
+        val rules = card()
+        rules.addView(label("بوابة جودة الإشارة", 13f, Color.WHITE, true))
+        rules.addView(label("عتبة التوافق 72/100 • هامش اتجاه واضح • إطاران أعلى متوافقان • شموع حديثة بلا فجوات مفرطة. النتيجة NO TRADE عند فشل أي شرط أساسي.", 12f))
+        rules.addView(label("درجة التوافق ليست احتمال ربح ولا ضماناً. لا تُعتمد الاستراتيجية قبل Walk-forward واختبار أمامي على بيانات لم تُستخدم في التطوير.", 11f, Color.rgb(255,194,91)))
+        page.addView(rules)
+        addGap(page)
+        page.addView(actionButton("تشغيل التحليل الاحترافي للأصل المختار") { loadExampleSignal() })
+        addGap(page)
+        val report = card()
+        report.addView(label("تقرير التحليل الحالي", 14f, Color.WHITE, true))
+        renderAnalysisReport(report, lastAnalysis)
+        page.addView(report)
+        addGap(page)
+        page.addView(actionButton("اختبار تاريخي Walk-forward دون تسريب المستقبل") { runWalkForward() })
+        addGap(page)
+        val validation = card()
+        validation.addView(label("تقرير التحقق التاريخي", 14f, Color.WHITE, true))
+        renderWalkForwardReport(validation, lastWalkForward)
+        page.addView(validation)
         addGap(page)
         page.addView(actionButton("قراءة إحصاءات التاريخ") { loadHistory() })
         addGap(page)
-        page.addView(actionButton("جلب إشارة المحرك الحالية") { loadExampleSignal() })
-        addGap(page)
-        page.addView(label("مقاييس الاعتماد المطلوبة: عدد الصفقات، Win/Loss/Tie، صافي العائد بعد payout، expectancy، أقصى drawdown، أطول سلسلة خسائر، ونتائج الاختبار خارج العينة.", 11f))
+        page.addView(label("التنفيذ الآلي غير مفعّل. هذا المحرك يدرس عقود Binary Options على بيانات Deriv فقط، ولا يرسل أوامر تداول.", 11f))
+    }
+
+    private fun renderAnalysisReport(target: LinearLayout, data: JSONObject) {
+        if (data.length() == 0) {
+            target.addView(label("لم يتم تشغيل التحليل بعد.", 12f))
+            return
+        }
+        val decision = data.optString("decision", "NO_TRADE")
+        val score = data.optInt("score", 0)
+        val color = if (decision == "CALL") mint else if (decision == "PUT") red else Color.rgb(255,194,91)
+        target.addView(label("$decision  •  $score/100", 24f, color, true))
+        target.addView(label("الأصل: ${data.optString("symbol")}  |  الإطار: ${data.optString("interval")}  |  المحرك: ${data.optString("engine_version")}", 10f))
+        target.addView(label("CALL: ${data.optInt("long_score")}  |  PUT: ${data.optInt("short_score")}  |  هامش الاتجاه: ${data.optInt("directional_margin")}", 12f, Color.WHITE))
+        val mtf = data.optJSONObject("higher_timeframes")
+        if (mtf != null) {
+            for (tf in listOf("5m", "15m", "1h", "4h")) {
+                val item = mtf.optJSONObject(tf) ?: continue
+                target.addView(label("$tf: ${item.optString("bias")} • ${item.optInt("bars")} شمعة", 11f))
+            }
+        }
+        val indicators = data.optJSONObject("indicators")
+        if (indicators != null) {
+            target.addView(label("المؤشرات", 12f, Color.WHITE, true))
+            target.addView(label("RSI ${display(indicators.opt("rsi14"))} | ADX ${display(indicators.opt("adx14"))} | ATR% ${display(indicators.opt("atr_percent"))}", 11f))
+            target.addView(label("EMA 9/21/50: ${display(indicators.opt("ema9"))} / ${display(indicators.opt("ema21"))} / ${display(indicators.opt("ema50"))}", 10f))
+        }
+        val modules = data.optJSONObject("modules")
+        if (modules != null) {
+            target.addView(label("توافق وحدات التحليل", 12f, Color.WHITE, true))
+            val keys = modules.keys()
+            while (keys.hasNext()) {
+                val key = keys.next()
+                val item = modules.optJSONObject(key) ?: continue
+                target.addView(label("$key: ${item.optString("direction")} — ${item.optString("detail")}", 10f))
+            }
+        }
+        val blockers = data.optJSONArray("blockers")
+        if (blockers != null && blockers.length() > 0) {
+            target.addView(label("أسباب الامتناع", 12f, Color.rgb(255,194,91), true))
+            for (i in 0 until blockers.length()) target.addView(label("• ${blockers.optString(i)}", 10f))
+        }
+        val reasons = data.optJSONArray("rationale")
+        if (reasons != null) {
+            target.addView(label("الأدلة المؤيدة", 12f, Color.WHITE, true))
+            for (i in 0 until min(reasons.length(), 8)) target.addView(label("• ${reasons.optString(i)}", 10f))
+        }
+        target.addView(label("درجة التوافق ليست نسبة نجاح.", 10f, Color.rgb(255,194,91)))
+    }
+
+    private fun renderWalkForwardReport(target: LinearLayout, data: JSONObject) {
+        if (data.length() == 0) {
+            target.addView(label("لم يُنفذ الاختبار التاريخي بعد.", 12f))
+            return
+        }
+        val overall = data.optJSONObject("overall") ?: JSONObject()
+        val splits = data.optJSONObject("chronological_splits") ?: JSONObject()
+        val test = splits.optJSONObject("test") ?: JSONObject()
+        target.addView(label("الصفقات المولدة: ${data.optInt("generated_trades")} من ${data.optInt("candles_used")} شمعة", 13f, Color.WHITE, true))
+        target.addView(label("Win: ${overall.optInt("wins")} | Loss: ${overall.optInt("losses")} | Tie: ${overall.optInt("ties")}", 12f))
+        target.addView(label("صافي P&L: ${display(overall.opt("net_pnl"))} | Expectancy: ${display(overall.opt("expectancy_per_trade"))}", 12f))
+        target.addView(label("Test win rate: ${display(test.opt("win_rate_excluding_ties"))} | Test P&L: ${display(test.opt("net_pnl"))}", 12f, mint))
+        target.addView(label("Break-even عند payout المعتمد: ${data.opt("break_even_win_rate")}", 11f))
+        target.addView(label("Lookahead bias: ${data.optBoolean("lookahead_bias", true)}", 11f))
+        val warnings = data.optJSONArray("warnings")
+        if (warnings != null) for (i in 0 until warnings.length()) target.addView(label("تحذير: ${warnings.optString(i)}", 10f, Color.rgb(255,194,91)))
     }
 
     private fun buildHistory() {
@@ -602,12 +681,22 @@ class MainActivity : Activity() {
     private fun loadExampleSignal() {
         request("/analysis/${encodedSymbol()}?interval=1m&limit=250") { obj, error ->
             if (obj != null) {
+                lastAnalysis = obj
                 val decision = obj.optString("decision", "NO_TRADE")
                 val score = obj.optInt("score", 0)
-                val reason = obj.optJSONArray("blockers")?.optString(0).orEmpty()
-                val detail = if (reason.isNotBlank()) " • $reason" else ""
-                toast("تحليل ${safeSymbol()}: $decision | $score/100$detail")
+                toast("تحليل ${safeSymbol()}: $decision | $score/100")
+                if (activePage == "lab") showPage("lab")
             } else toast(error ?: "تعذر تحليل الأصل")
+        }
+    }
+
+    private fun runWalkForward() {
+        request("/research/walk-forward/${encodedSymbol()}?interval=1m&limit=1500&payout=0.8&expiry_bars=1") { obj, error ->
+            if (obj != null) {
+                lastWalkForward = obj
+                toast("اكتمل الاختبار: ${obj.optInt("generated_trades")} صفقة تاريخية")
+                if (activePage == "lab") showPage("lab")
+            } else toast(error ?: "تعذر تشغيل الاختبار التاريخي")
         }
     }
 
