@@ -71,7 +71,7 @@ class MainActivity : Activity() {
         }
         header.addView(brand); header.addView(tagline); header.addView(status)
         root.addView(header)
-        val scroll = ScrollView(this).apply { fillViewport = true }
+        val scroll = ScrollView(this).apply { isFillViewport = true }
         page = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(8), dp(16), dp(22))
