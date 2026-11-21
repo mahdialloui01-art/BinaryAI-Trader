@@ -271,6 +271,7 @@ class MainActivity : Activity() {
                 row.setOnClickListener {
                     symbol.setText(sym)
                     getSharedPreferences("binaryai", MODE_PRIVATE).edit().putString("symbol", sym).apply()
+                    stopLiveStream()
                     activePage = "home"; renderNav(); showPage("home"); refreshMarket()
                 }
                 page.addView(row); addGap(page, 7)
