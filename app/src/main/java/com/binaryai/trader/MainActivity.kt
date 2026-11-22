@@ -453,8 +453,8 @@ class MainActivity : Activity() {
         val test = lastWalkForward.optJSONObject("chronological_splits")?.optJSONObject("test")
         val trades = test?.optInt("trades", 0) ?: 0
         val rate = test?.opt("win_rate_excluding_ties")
-        if (trades < 30 || rate == null || rate == JSONObject.NULL) {
-            return "نسبة النجاح التاريخية: عينة الاختبار غير كافية ($trades صفقة)"
+        if (trades < 50 || rate == null || rate == JSONObject.NULL) {
+            return "النتيجة التاريخية مخفية: يلزم 50 صفقة اختبار مستقلة على الأقل (المتاح $trades)"
         }
         val pct = (rate.toString().toDoubleOrNull() ?: return "نسبة النجاح التاريخية: غير متاحة") * 100.0
         val wins = test?.optInt("wins", 0) ?: 0
