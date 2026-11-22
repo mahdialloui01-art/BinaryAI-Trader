@@ -480,7 +480,13 @@ async def binary_analysis(
                 blockers.append("LIVE_TICK_DID_NOT_CONFIRM_DIRECTION")
             if direction not in ("CALL", "PUT") or not tick_confirms or blockers:
                 item["decision"] = "NO_TRADE"
-                item["entry_status"] = "CANCELLED_OR_WAITING"
+                item["entry_status"] = "WAITING_FOR_CONFIRMATION"
+                item["timing_status"] = "not_scheduled"
+                item["timing_reason"] = (
+                    "LIVE_TICK_STALE_OR_UNAVAILABLE" if not tick_fresh else
+                    "LIVE_TICK_DID_NOT_CONFIRM_DIRECTION" if direction in ("CALL", "PUT") and not tick_confirms else
+                    "ANALYSIS_BLOCKERS_PRESENT" if blockers else "NO_DIRECTIONAL_SIGNAL"
+                )
                 item["entry_time_utc"] = None
                 item["entry_time_algeria"] = None
                 item["expiry_time_utc"] = None
@@ -497,6 +503,8 @@ async def binary_analysis(
                 expiry_at = entry_at + timedelta(seconds=minutes * 60)
                 recheck_at = entry_at - timedelta(seconds=10)
                 item["entry_status"] = "PRE_ALERT_SCHEDULED"
+                item["timing_status"] = "scheduled"
+                item["timing_reason"] = None
                 item["alert_lead_seconds"] = lead_seconds
                 item["pre_alert_time_utc"] = timing_now.isoformat()
                 item["pre_alert_time_algeria"] = timing_now.astimezone(local_tz).isoformat()
