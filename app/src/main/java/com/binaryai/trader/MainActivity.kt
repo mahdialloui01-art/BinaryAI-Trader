@@ -829,6 +829,20 @@ class MainActivity : Activity() {
     }
 
     private fun loadExampleSignal() {
+        val selected = safeSymbol()
+        if (lastSymbols.length() == 0) {
+            toast("نحمّل قائمة أصول Deriv أولاً؛ أعد التحليل بعد ظهور القائمة")
+            loadDerivSymbols()
+            return
+        }
+        val isKnown = (0 until lastSymbols.length()).any { index ->
+            lastSymbols.optJSONObject(index)?.optString("symbol")?.equals(selected, true) == true
+        }
+        if (!isKnown) {
+            toast("الرمز $selected غير موجود في كتالوج Deriv. اختر الأصل من قائمة الأصول ثم أعد التحليل.")
+            loadDerivSymbols()
+            return
+        }
         request("/analysis/${encodedSymbol()}?interval=1m&limit=250") { obj, error ->
             if (obj != null) {
                 lastAnalysis = obj
