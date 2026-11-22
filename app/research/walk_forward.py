@@ -104,10 +104,10 @@ def walk_forward_binary_options(
     test = evaluation["chronological_splits"]["test"]
     validation = evaluation["chronological_splits"]["validation"]
     sample_warnings = []
-    if len(trades) < 30:
-        sample_warnings.append("FEWER_THAN_30_TRADES")
-    if test["trades"] < 10:
-        sample_warnings.append("TEST_SPLIT_HAS_FEWER_THAN_10_TRADES")
+    if len(trades) < 100:
+        sample_warnings.append("FEWER_THAN_100_TOTAL_TRADES")
+    if test["trades"] < 50:
+        sample_warnings.append("TEST_SPLIT_HAS_FEWER_THAN_50_TRADES")
     if test["win_rate_excluding_ties"] is None:
         sample_warnings.append("NO_DECISIVE_TEST_TRADES")
     break_even = 1.0 / (1.0 + payout)
