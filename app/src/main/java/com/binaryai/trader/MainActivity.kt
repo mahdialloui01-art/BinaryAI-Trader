@@ -910,46 +910,72 @@ class MainActivity : Activity() {
         scheduledSymbol: String,
         originalDirection: String,
         originalEntry: String,
-        originalExpiry: String
+        originalExpiry: String,
+        retry: Int = 0
     ) {
         val forecasts = lastAnalysis.optJSONObject("horizon_forecasts") ?: return
         val originalItem = forecasts.optJSONObject(horizon) ?: return
-        if (originalItem.optString("entry_status") != "PRE_ALERT_SCHEDULED") return
+        if (originalItem.optString("entry_status") !in listOf("PRE_ALERT_SCHEDULED", "CONFIRMATION_DELAYED", "FINAL_CHECK_RUNNING")) return
         originalItem.put("entry_status", "FINAL_CHECK_RUNNING")
+        originalItem.put("final_check_attempt", retry + 1)
         originalItem.put("final_check_requested_at", System.currentTimeMillis())
+
         request("/analysis/$scheduledSymbol?interval=1m&limit=250") { fresh, error ->
             val freshItem = fresh?.optJSONObject("horizon_forecasts")?.optJSONObject(horizon)
             val freshDirection = freshItem?.optString("decision", "NO_TRADE") ?: "NO_TRADE"
             val blockers = freshItem?.optJSONArray("blockers")
-            val noBlockers = blockers == null || blockers.length() == 0
-            val freshTickConfirmed = freshItem != null &&
-                freshItem.optString("timing_status") == "scheduled" &&
-                freshItem.optString("timing_reason").isBlank()
-            val stillBeforeOriginalEntry = try {
-                System.currentTimeMillis() < OffsetDateTime.parse(originalEntry).toInstant().toEpochMilli()
-            } catch (_: Exception) { false }
-            val valid = fresh != null && stillBeforeOriginalEntry &&
-                freshDirection == originalDirection && noBlockers && freshTickConfirmed
-            // Always retain the exact timestamps from the first alert.
+            val hasHardBlockers = blockers != null && blockers.length() > 0
+            val liveTiming = fresh?.optJSONObject("timing")
+            val liveTickConfirmed = liveTiming?.optBoolean("live_tick_confirmed", false) == true
+            val entryMillis = try { OffsetDateTime.parse(originalEntry).toInstant().toEpochMilli() } catch (_: Exception) { 0L }
+            val now = System.currentTimeMillis()
+            val secondsLeft = if (entryMillis > 0L) (entryMillis - now) / 1000L else -1L
+
+            // A delayed/unavailable response is NOT proof that the signal became invalid.
+            // Keep the original entry time and retry while there is still time.
+            if (fresh == null || (freshDirection == originalDirection && !hasHardBlockers && !liveTickConfirmed)) {
+                originalItem.put("entry_time_algeria", originalEntry)
+                originalItem.put("expiry_time_algeria", originalExpiry)
+                if (secondsLeft > 3L && retry < 4) {
+                    originalItem.put("entry_status", "CONFIRMATION_DELAYED")
+                    originalItem.put("timing_status", "scheduled")
+                    originalItem.put("final_check_reason", error ?: "LIVE_TICK_CONFIRMATION_PENDING")
+                    liveHandler.postDelayed({
+                        runFinalEntryCheck(horizon, scheduledSymbol, originalDirection, originalEntry, originalExpiry, retry + 1)
+                    }, 2000L)
+                    if (activePage == "lab") showPage("lab")
+                    if (retry == 0) toast("$horizon: تأخر التأكيد؛ نعيد الفحص دون تغيير موعد الدخول")
+                    return@request
+                }
+                originalItem.put("entry_status", "FINAL_CHECK_UNCONFIRMED")
+                originalItem.put("timing_status", "scheduled")
+                originalItem.put("final_check_reason", error ?: "CONFIRMATION_NOT_RECEIVED")
+                if (activePage == "lab") showPage("lab")
+                toast("$horizon: لم يصل تأكيد نهائي؛ الموعد الأصلي محفوظ لكن الإشارة غير مؤكدة")
+                return@request
+            }
+
+            // A clear opposite forecast or an explicit analysis blocker invalidates the signal.
+            val invalidated = freshDirection != originalDirection || hasHardBlockers
             originalItem.put("entry_time_algeria", originalEntry)
             originalItem.put("expiry_time_algeria", originalExpiry)
-            if (valid) {
+            if (!invalidated && liveTickConfirmed && secondsLeft > 0L) {
                 originalItem.put("entry_status", "FINAL_CONFIRMED")
                 originalItem.put("timing_status", "scheduled")
-                originalItem.put("final_check_reason", "SAME_DIRECTION_NO_BLOCKERS_LIVE_TICK_CONFIRMED")
-                originalItem.put("final_check_price", fresh?.optJSONObject("timing")?.optDouble("live_tick_price") ?: JSONObject.NULL)
+                originalItem.put("final_check_reason", "SAME_DIRECTION_NO_BLOCKERS_FRESH_LIVE_TICK")
+                originalItem.put("final_check_price", liveTiming?.optDouble("live_tick_price") ?: JSONObject.NULL)
             } else {
                 originalItem.put("entry_status", "FINAL_CHECK_FAILED")
                 originalItem.put("timing_status", "cancelled")
-                originalItem.put("final_check_reason", error ?: when {
-                    fresh == null -> "FRESH_ANALYSIS_UNAVAILABLE"
+                originalItem.put("final_check_reason", when {
                     freshDirection != originalDirection -> "DIRECTION_CHANGED"
-                    !noBlockers -> "ANALYSIS_BLOCKERS_PRESENT"
+                    hasHardBlockers -> "ANALYSIS_BLOCKERS_PRESENT"
+                    secondsLeft <= 0L -> "ENTRY_TIME_PASSED"
                     else -> "LIVE_TICK_NOT_CONFIRMED"
                 })
             }
             if (activePage == "lab") showPage("lab")
-            toast(if (valid) "$horizon: تأكيد نهائي ناجح، نفس موعد الدخول محفوظ" else "$horizon: أُلغي الدخول؛ شروط التأكيد غير مكتملة")
+            toast(if (originalItem.optString("entry_status") == "FINAL_CONFIRMED") "$horizon: تأكيد نهائي ناجح، نفس موعد الدخول محفوظ" else "$horizon: أُبطلت الإشارة بسبب تغير واضح في الاتجاه أو ظهور مانع")
         }
     }
 
