@@ -396,7 +396,10 @@ class MainActivity : Activity() {
                 box.addView(timingPanel)
                 val recheckText = when (entryStatus) {
                     "FINAL_CONFIRMED" -> "تأكيد نهائي ناجح قبل الدخول بـ10 ثوانٍ — تم الإبقاء على نفس الموعد."
-                    "FINAL_CHECK_FAILED" -> "فشل التأكيد النهائي — تم إلغاء الدخول وعدم تغيير الموعد."
+                    "FINAL_CHECK_FAILED" -> "فشل التأكيد النهائي — تم إلغاء الدخول بسبب تغير واضح أو مانع."
+                    "CONFIRMATION_DELAYED" -> "تأخر رد Deriv؛ يجري تكرار الفحص دون إلغاء الإشارة أو تغيير الموعد."
+                    "FINAL_CHECK_UNCONFIRMED" -> "لم يصل تأكيد نهائي؛ الموعد محفوظ لكن الإشارة غير مؤكدة، لا تعتمد عليها."
+                    "FINAL_CHECK_RUNNING" -> "جارٍ التحقق من السعر والاتجاه قبل موعد الدخول."
                     else -> "سيُعاد فحص السعر والاتجاه تلقائياً قبل الدخول بـ10 ثوانٍ."
                 }
                 box.addView(label(recheckText, 10f, if (entryStatus == "FINAL_CONFIRMED") mint else Color.rgb(255,194,91), true))
@@ -411,12 +414,15 @@ class MainActivity : Activity() {
             val statusText = when (entryStatus) {
                 "PRE_ALERT_SCHEDULED" -> "موعد دخول مجدول — إعادة تأكيد مطلوبة"
                 "FINAL_CONFIRMED" -> "التأكيد النهائي ناجح — نفس وقت الدخول محفوظ"
-                "FINAL_CHECK_FAILED" -> "أُلغي الدخول — شروط التأكيد لم تعد صالحة"
+                "FINAL_CHECK_FAILED" -> "أُلغي الدخول — تغير الاتجاه أو ظهر مانع"
+                "CONFIRMATION_DELAYED" -> "تأخر التأكيد — إعادة المحاولة"
+                "FINAL_CHECK_UNCONFIRMED" -> "غير مؤكدة — لم يصل رد نهائي"
+                "FINAL_CHECK_RUNNING" -> "جارٍ التأكيد النهائي"
                 "WAITING_FOR_CONFIRMATION" -> "بانتظار تأكيد شروط الدخول"
                 "LIVE_TICK_CONFIRMED" -> "تأكيد سعر حي"
                 else -> "لا يوجد موعد دخول صالح"
             }
-            box.addView(label("الحالة: $statusText", 10f, if (entryStatus == "PRE_ALERT_SCHEDULED") Color.rgb(255,194,91) else muted))
+            box.addView(label("الحالة: $statusText", 10f, if (entryStatus in listOf("PRE_ALERT_SCHEDULED", "CONFIRMATION_DELAYED", "FINAL_CHECK_UNCONFIRMED", "FINAL_CHECK_RUNNING")) Color.rgb(255,194,91) else muted))
             val evidence = item.optJSONArray("evidence")
             if (evidence != null) {
                 val parts = ArrayList<String>()
