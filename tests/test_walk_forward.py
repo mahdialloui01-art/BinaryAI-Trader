@@ -35,3 +35,6 @@ def test_walk_forward_uses_chronological_point_in_time_replay():
     assert result["candles_used"] == 240
     assert set(result["chronological_splits"]) == {"train", "validation", "test"}
     assert result["break_even_win_rate"] == 0.55556
+    assert result["research_assessment"]["live_signal_allowed"] is False
+    assert result["research_assessment"]["status"] in {"INSUFFICIENT_EVIDENCE", "RESEARCH_PROMISING_NOT_VALIDATED"}
+    assert "test_wilson_95_lower_bound" in result["validation_vs_test"]
