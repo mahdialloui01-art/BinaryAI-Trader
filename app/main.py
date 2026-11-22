@@ -555,6 +555,19 @@ async def binary_analysis(
             status_code=504,
             detail="انتهت مهلة جلب بيانات التحليل من Deriv. أعد المحاولة؛ لم يتم إصدار إشارة اعتماداً على بيانات ناقصة.",
         ) from exc
+    except RuntimeError as exc:
+        message = str(exc)
+        if "invalid symbol" in message.lower() or "symbol is invalid" in message.lower():
+            raise HTTPException(
+                status_code=422,
+                detail={
+                    "code": "INVALID_DERIV_SYMBOL",
+                    "message": "الرمز المختار غير مقبول لدى Deriv. حدّث قائمة الأصول واختر الرمز كما يظهر في القائمة؛ لا تستخدم اسم الأصل المعروض مكان معرّفه.",
+                    "received_symbol": symbol.upper(),
+                    "refresh_symbols": True,
+                },
+            ) from exc
+        raise HTTPException(status_code=502, detail=f"Binary analysis feed error: {message}") from exc
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Binary analysis feed error: {exc}") from exc
 
