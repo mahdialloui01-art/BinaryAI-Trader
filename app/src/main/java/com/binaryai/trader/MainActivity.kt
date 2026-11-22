@@ -8,6 +8,7 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Color
 import android.graphics.RectF
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.View
 import android.widget.*
@@ -142,10 +143,18 @@ class MainActivity : Activity() {
             if (bold) setTypeface(null, 1)
         }
 
+    private fun roundedBackground(color: Int, strokeColor: Int = Color.rgb(38, 54, 76)): GradientDrawable =
+        GradientDrawable().apply {
+            setColor(color)
+            cornerRadius = dp(16).toFloat()
+            setStroke(dp(1), strokeColor)
+        }
+
     private fun card(): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
-        setPadding(dp(14), dp(13), dp(14), dp(13))
-        setBackgroundColor(panel)
+        setPadding(dp(16), dp(15), dp(16), dp(15))
+        background = roundedBackground(panel)
+        elevation = dp(2).toFloat()
     }
 
     private fun addGap(parent: LinearLayout, height: Int = 10) {
@@ -173,6 +182,7 @@ class MainActivity : Activity() {
                 textSize = 12f; setTypeface(null, if (activePage == key) 1 else 0)
                 setTextColor(if (activePage == key) mint else muted)
                 setPadding(0, dp(10), 0, dp(10))
+                background = if (activePage == key) roundedBackground(Color.rgb(20, 48, 59), Color.rgb(37, 105, 104)) else null
                 setOnClickListener { activePage = key; renderNav(); showPage(key) }
             }
             nav.addView(b, LinearLayout.LayoutParams(0, dp(44), 1f))
@@ -181,6 +191,27 @@ class MainActivity : Activity() {
 
     private fun showPage(which: String) {
         page.removeAllViews()
+        val pageTitle = when (which) {
+            "home" -> "مركز التداول والتحليل"
+            "assets" -> "مكتبة الأصول"
+            "lab" -> "مختبر التحليل والتحقق"
+            else -> "سجل الأداء والبيانات"
+        }
+        val pageSubtitle = when (which) {
+            "home" -> "السوق المباشر • الإشارات • توقيت الدخول"
+            "assets" -> "اختر أصل Deriv وتحقق من عقود Binary Options"
+            "lab" -> "تحليل متعدد الطبقات واختبارات تاريخية"
+            else -> "إحصاءات الشموع والنتائج المسجلة"
+        }
+        val hero = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(17), dp(16), dp(17), dp(16))
+            background = roundedBackground(Color.rgb(16, 39, 57), Color.rgb(34, 83, 100))
+        }
+        hero.addView(label(pageTitle, 19f, Color.WHITE, true))
+        hero.addView(label(pageSubtitle, 11f, mint))
+        page.addView(hero)
+        addGap(page, 12)
         when (which) {
             "home" -> buildHome()
             "assets" -> buildAssets()
@@ -339,26 +370,39 @@ class MainActivity : Activity() {
             head.addView(label(decision, 18f, tint, true))
             box.addView(head)
             box.addView(label("قوة توافق التحليل: $score/100", 12f, tint, true))
-            val entryStatus = item.optString("entry_status", "CANCELLED_OR_WAITING")
+            val entryStatus = item.optString("entry_status", "WAITING_FOR_CONFIRMATION")
+            val timingStatus = item.optString("timing_status", "not_scheduled")
             val entryRaw = item.optString("entry_time_algeria", "")
             val expiryRaw = item.optString("expiry_time_algeria", "")
-            if (decision == "CALL" || decision == "PUT") {
-                val lead = item.optInt("alert_lead_seconds", 0)
-                val leadText = if (lead >= 120) "دقيقتين" else if (lead == 60) "دقيقة واحدة" else "غير محدد"
-                box.addView(label("تنبيه مسبق: الدخول بعد $leadText", 13f, Color.rgb(255,194,91), true))
-                box.addView(label("وقت الدخول المحدد: ${formatSignalTime(entryRaw)}", 16f, Color.WHITE, true))
-                box.addView(label("وقت الانتهاء: ${formatSignalTime(expiryRaw)}", 13f, mint, true))
-                box.addView(label("مدة الصفقة بعد الدخول: ${item.optInt("duration_seconds", 0)} ثانية", 11f, Color.WHITE))
-                box.addView(label("ضروري: أعد التحليل قبل الدخول بـ10 ثوانٍ. لا تدخل إذا تغير الاتجاه أو ظهرت موانع.", 10f, Color.rgb(255,194,91)))
+            val hasSchedule = timingStatus == "scheduled" && entryRaw.isNotBlank() && expiryRaw.isNotBlank()
+            if (hasSchedule && (decision == "CALL" || decision == "PUT")) {
+                val lead = item.optInt("alert_lead_seconds", if (key == "1m") 60 else 120)
+                val leadText = if (lead >= 120) "دقيقتين" else "دقيقة واحدة"
+                val timingPanel = LinearLayout(this).apply {
+                    orientation = LinearLayout.VERTICAL
+                    setPadding(dp(13), dp(12), dp(13), dp(12))
+                    background = roundedBackground(Color.rgb(18, 48, 54), Color.rgb(44, 133, 113))
+                }
+                timingPanel.addView(label("تنبيه مسبق قبل الدخول بـ$leadText", 12f, mint, true))
+                timingPanel.addView(label("وقت الدخول — الجزائر", 10f, muted))
+                timingPanel.addView(label(formatSignalTime(entryRaw), 19f, Color.WHITE, true))
+                timingPanel.addView(label("انتهاء العقد: ${formatSignalTime(expiryRaw)}", 12f, mint, true))
+                timingPanel.addView(label("مدة العقد: ${item.optInt("duration_seconds", 0)} ثانية", 11f, Color.WHITE))
+                box.addView(timingPanel)
+                box.addView(label("أعد التحليل قبل الدخول بـ10 ثوانٍ. هذا توقيت إرشادي وليس تنفيذًا آليًا.", 10f, Color.rgb(255,194,91)))
             } else {
-                box.addView(label("الدخول: انتظار تأكيد حي — لا تدخل الآن", 12f, Color.rgb(255,194,91), true))
+                box.addView(label("لا يوجد دخول مجدول حاليًا", 13f, Color.rgb(255,194,91), true))
+                box.addView(label("لن يظهر وقت الدخول إلا بعد توافق التحليل وتأكيد السعر الحي من Deriv.", 10f, muted))
+                val reason = item.optString("timing_reason", "")
+                if (reason.isNotBlank()) box.addView(label("السبب: ${timingReasonArabic(reason)}", 10f, Color.rgb(255,194,91)))
             }
             val historical = historicalWinRateLabel(data.optString("symbol"), data.optString("interval"))
             box.addView(label(historical, 11f, Color.WHITE, true))
             val statusText = when (entryStatus) {
-                "PRE_ALERT_SCHEDULED" -> "تنبيه مسبق مجدول — إعادة تأكيد مطلوبة قبل الدخول"
-                "LIVE_TICK_CONFIRMED" -> "تأكيد Tick حي"
-                else -> "انتظار / إلغاء الإشارة"
+                "PRE_ALERT_SCHEDULED" -> "موعد دخول مجدول — إعادة تأكيد مطلوبة"
+                "WAITING_FOR_CONFIRMATION" -> "بانتظار تأكيد شروط الدخول"
+                "LIVE_TICK_CONFIRMED" -> "تأكيد سعر حي"
+                else -> "لا يوجد موعد دخول صالح"
             }
             box.addView(label("الحالة: $statusText", 10f, if (entryStatus == "PRE_ALERT_SCHEDULED") Color.rgb(255,194,91) else muted))
             val evidence = item.optJSONArray("evidence")
@@ -379,6 +423,14 @@ class MainActivity : Activity() {
             addGap(target, 8)
         }
         target.addView(label("مهم: قوة التوافق ليست نسبة نجاح. نسبة النجاح المعروضة أدناه تاريخية من اختبار مستقل، وليست توقعاً مضموناً للصفقة الحالية.", 10f, Color.rgb(255,194,91)))
+    }
+
+    private fun timingReasonArabic(code: String): String = when (code) {
+        "LIVE_TICK_STALE_OR_UNAVAILABLE" -> "سعر Deriv غير حديث أو غير متاح"
+        "LIVE_TICK_DID_NOT_CONFIRM_DIRECTION" -> "السعر الحي لا يؤكد اتجاه الإشارة"
+        "ANALYSIS_BLOCKERS_PRESENT" -> "شروط التحليل الأساسية غير مكتملة"
+        "NO_DIRECTIONAL_SIGNAL" -> "لا يوجد اتجاه واضح"
+        else -> "لم تكتمل شروط التأكيد"
     }
 
     private fun formatSignalTime(raw: String): String {
