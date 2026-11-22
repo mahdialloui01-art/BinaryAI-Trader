@@ -111,6 +111,16 @@ def walk_forward_binary_options(
     if test["win_rate_excluding_ties"] is None:
         sample_warnings.append("NO_DECISIVE_TEST_TRADES")
     break_even = 1.0 / (1.0 + payout)
+    test_lower = test["win_rate_wilson_95"]["lower"]
+    validation_positive = validation["expectancy_per_trade"] is not None and validation["expectancy_per_trade"] > 0
+    test_positive = test["expectancy_per_trade"] is not None and test["expectancy_per_trade"] > 0
+    enough_test_trades = test["trades"] >= 50
+    statistically_above_break_even = test_lower is not None and test_lower > break_even
+    research_status = (
+        "RESEARCH_PROMISING_NOT_VALIDATED"
+        if enough_test_trades and statistically_above_break_even and validation_positive and test_positive
+        else "INSUFFICIENT_EVIDENCE"
+    )
     return {
         "symbol": symbol, "provider": "deriv", "interval": interval,
         "method": "strict_walk_forward_close_decision_next_open_entry",
@@ -130,6 +140,17 @@ def walk_forward_binary_options(
             "validation_net_pnl": validation["net_pnl"],
             "test_net_pnl": test["net_pnl"],
             "test_expectancy": test["expectancy_per_trade"],
+            "test_wilson_95_lower_bound": test_lower,
+            "break_even_win_rate": break_even,
+        },
+        "research_assessment": {
+            "status": research_status,
+            "live_signal_allowed": False,
+            "test_sample_at_least_50": enough_test_trades,
+            "test_lower_bound_above_break_even": statistically_above_break_even,
+            "validation_expectancy_positive": validation_positive,
+            "test_expectancy_positive": test_positive,
+            "note": "Even a promising historical result is not live validation or a probability forecast; require independent forward observation.",
         },
         "blocker_frequency": dict(sorted(blocker_counts.items(), key=lambda x: x[1], reverse=True)),
         "warnings": sample_warnings,
