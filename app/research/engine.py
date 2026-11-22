@@ -94,6 +94,24 @@ def _valid_candles(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if stamp_key:
             seen.add(stamp_key)
         valid.append({"open": o, "high": h, "low": low, "close": c, "timestamp": stamp})
+    # Indicator calculations must always run in chronological order. Some providers
+    # return newest-first batches; silently accepting that order reverses every signal.
+    def _sort_stamp(row: dict[str, Any]):
+        raw = row.get("timestamp")
+        if isinstance(raw, (int, float)):
+            return float(raw) / 1000 if raw > 10_000_000_000 else float(raw)
+        if raw:
+            try:
+                stamp = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+                if stamp.tzinfo is None:
+                    stamp = stamp.replace(tzinfo=timezone.utc)
+                return stamp.timestamp()
+            except (ValueError, TypeError, OverflowError, OSError):
+                return None
+        return None
+    keys = [_sort_stamp(row) for row in valid]
+    if valid and all(key is not None for key in keys):
+        valid = [row for _, row in sorted(zip(keys, valid), key=lambda pair: pair[0])]
     return valid
 
 
@@ -214,11 +232,15 @@ def _time_quality(bars: list[dict[str, Any]], interval: str, as_of: datetime | N
             if delta > seconds * 1.5:
                 gaps += max(1, round(delta / seconds) - 1)
     reference_time = as_of or datetime.now(timezone.utc)
-    latest_age = max(0.0, (reference_time - stamps[-1]).total_seconds()) if stamps else None
+    stamps.sort()
+    raw_age = (reference_time - stamps[-1]).total_seconds() if stamps else None
+    future_timestamp = raw_age is not None and raw_age < -5
+    latest_age = max(0.0, raw_age) if raw_age is not None else None
     return {
         "timestamped_bars": len(stamps), "timestamp_coverage": round(len(stamps) / max(1, len(bars)), 4), "missing_bars_estimate": gaps,
         "latest_closed_bar_age_seconds": round(latest_age, 2) if latest_age is not None else None,
-        "stale": latest_age is None or latest_age > seconds * 3.5 or len(stamps) / max(1, len(bars)) < 0.98,
+        "future_timestamp_detected": future_timestamp,
+        "stale": latest_age is None or latest_age > seconds * 3.5 or future_timestamp or len(stamps) / max(1, len(bars)) < 0.98,
         "gap_ratio": gaps / max(1, len(bars) + gaps),
     }
 
