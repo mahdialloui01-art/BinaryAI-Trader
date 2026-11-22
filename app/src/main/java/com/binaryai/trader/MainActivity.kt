@@ -355,8 +355,8 @@ class MainActivity : Activity() {
             target.addView(label("توقعات الآفاق الزمنية غير متاحة في هذا التقرير.", 11f, muted))
             return
         }
-        target.addView(label("توقعات بحثية فقط — لا توجد إشارة دخول معتمدة حالياً", 12f, Color.rgb(255,194,91), true))
-        target.addView(label("المحرك يمنع CALL/PUT القابلين للتنفيذ حتى اجتياز اختبار مستقل كافٍ. درجة التوافق ليست نسبة نجاح.", 10f, muted))
+        target.addView(label("توقعات CALL/PUT مع توقيت دخول بحثي عند تأكيد السعر الحي", 12f, Color.rgb(255,194,91), true))
+        target.addView(label("الاستراتيجية غير معتمدة للتداول الحقيقي حتى اجتياز اختبار مستقل كافٍ. التوقيت إرشادي فقط، ودرجة التوافق ليست نسبة نجاح.", 10f, muted))
         for (key in listOf("1m", "2m", "5m")) {
             val item = forecasts.optJSONObject(key) ?: continue
             val decision = item.optString("decision", "NO_TRADE")
@@ -385,6 +385,7 @@ class MainActivity : Activity() {
                     setPadding(dp(13), dp(12), dp(13), dp(12))
                     background = roundedBackground(Color.rgb(18, 48, 54), Color.rgb(44, 133, 113))
                 }
+                timingPanel.addView(label("موعد بحثي — ليس توصية تداول حقيقية", 11f, Color.rgb(255,194,91), true))
                 timingPanel.addView(label("تنبيه مسبق قبل الدخول بـ$leadText", 12f, mint, true))
                 timingPanel.addView(label("وقت الدخول — الجزائر", 10f, muted))
                 timingPanel.addView(label(formatSignalTime(entryRaw), 19f, Color.WHITE, true))
