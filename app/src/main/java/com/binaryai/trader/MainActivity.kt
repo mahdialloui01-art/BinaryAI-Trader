@@ -925,8 +925,11 @@ class MainActivity : Activity() {
             val freshTickConfirmed = freshItem != null &&
                 freshItem.optString("timing_status") == "scheduled" &&
                 freshItem.optString("timing_reason").isBlank()
-            val valid = fresh != null && freshDirection == originalDirection &&
-                noBlockers && freshTickConfirmed
+            val stillBeforeOriginalEntry = try {
+                System.currentTimeMillis() < OffsetDateTime.parse(originalEntry).toInstant().toEpochMilli()
+            } catch (_: Exception) { false }
+            val valid = fresh != null && stillBeforeOriginalEntry &&
+                freshDirection == originalDirection && noBlockers && freshTickConfirmed
             // Always retain the exact timestamps from the first alert.
             originalItem.put("entry_time_algeria", originalEntry)
             originalItem.put("expiry_time_algeria", originalExpiry)
