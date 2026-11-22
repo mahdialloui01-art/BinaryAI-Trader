@@ -28,11 +28,12 @@ def test_walk_forward_uses_chronological_point_in_time_replay():
         "15m": candles(100, start - timedelta(minutes=1500), 900),
     }
     result = walk_forward_binary_options(
-        base, "frxEURUSD", "1m", higher, payout=0.8, expiry_bars=1
+        base, "frxEURUSD", "1m", higher, payout=0.8, expiry_bars=5
     )
     assert result["lookahead_bias"] is False
     assert result["execution_enabled"] is False
     assert result["candles_used"] == 240
+    assert result["parameters"]["expiry_bars"] == 5
     assert set(result["chronological_splits"]) == {"train", "validation", "test"}
     assert result["break_even_win_rate"] == 0.55556
     assert result["research_assessment"]["live_signal_allowed"] is False
