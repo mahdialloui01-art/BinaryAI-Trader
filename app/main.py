@@ -473,19 +473,17 @@ async def binary_analysis(
                     (direction == "PUT" and tick_price < reference_close)
                 )
             )
-            blockers = item.setdefault("blockers", [])
-            if not tick_fresh:
-                blockers.append("LIVE_TICK_STALE_OR_UNAVAILABLE")
-            elif direction in ("CALL", "PUT") and not tick_confirms:
-                blockers.append("LIVE_TICK_DID_NOT_CONFIRM_DIRECTION")
-            if direction not in ("CALL", "PUT") or not tick_confirms or blockers:
-                item["decision"] = "NO_TRADE"
+            analysis_blockers = item.get("blockers", [])
+            # Timing confirmation must never overwrite the engine's analytical decision.
+            # A missing/misaligned live tick only disables the entry clock, not the forecast.
+            if direction not in ("CALL", "PUT") or analysis_blockers or not tick_fresh or not tick_confirms:
                 item["entry_status"] = "WAITING_FOR_CONFIRMATION"
                 item["timing_status"] = "not_scheduled"
                 item["timing_reason"] = (
+                    "NO_DIRECTIONAL_SIGNAL" if direction not in ("CALL", "PUT") else
+                    "ANALYSIS_BLOCKERS_PRESENT" if analysis_blockers else
                     "LIVE_TICK_STALE_OR_UNAVAILABLE" if not tick_fresh else
-                    "LIVE_TICK_DID_NOT_CONFIRM_DIRECTION" if direction in ("CALL", "PUT") and not tick_confirms else
-                    "ANALYSIS_BLOCKERS_PRESENT" if blockers else "NO_DIRECTIONAL_SIGNAL"
+                    "LIVE_TICK_DID_NOT_CONFIRM_DIRECTION"
                 )
                 item["entry_time_utc"] = None
                 item["entry_time_algeria"] = None
