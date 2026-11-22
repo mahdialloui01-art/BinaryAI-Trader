@@ -39,12 +39,13 @@ def test_engine_returns_full_explainable_research_report():
     assert {"trend_structure", "market_structure", "momentum", "liquidity_sweep",
             "multi_timeframe"}.issubset(result["modules"])
     assert "ema100" in result["indicators"]
-    assert result["engine_version"] == "2.3.0"
+    assert result["engine_version"] == "2.4.0"
     assert result["confidence"] is None
     assert result["confidence_status"] == "NOT_CALIBRATED"
     assert result["confluence_score"] == result["score"]
-    assert "STRATEGY_NOT_VALIDATED_FOR_LIVE_SIGNALS" in result["blockers"]
-    assert result["decision"] == "NO_TRADE"
+    assert result["signal_authorization"]["live_signal_allowed"] is False
+    assert result["execution_enabled"] is False
+    assert result["entry_zone"]["status"] in {"WAIT_FOR_PULLBACK", "WAIT_FOR_REJECTION", "CONFIRMATION_CANDLE_PRESENT", "ZONE_INVALIDATED"}
     assert result["market_regime"]["trend_state"] in {"DIRECTIONAL", "MIXED", "CHOPPY"}
     assert result["market_regime"]["volatility_state"] in {"EXPANSION", "COMPRESSION", "NORMAL", "UNAVAILABLE"}
     forecasts = result["horizon_forecasts"]
@@ -82,7 +83,7 @@ def test_research_mode_can_replay_candidates_without_enabling_live_signals():
     now = datetime.now(timezone.utc)
     rows = _trend_candles(count=160, start=now - timedelta(seconds=160 * 60))
     result = analyze_binary_options(rows, "EURUSD", "1m", research_mode=True)
-    assert "STRATEGY_NOT_VALIDATED_FOR_LIVE_SIGNALS" not in result["blockers"]
+    assert result["signal_authorization"]["live_signal_allowed"] is False
     assert result["execution_enabled"] is False
     assert result["confidence"] is None
 
