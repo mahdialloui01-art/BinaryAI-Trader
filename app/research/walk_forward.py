@@ -33,8 +33,8 @@ def walk_forward_binary_options(
     """Strict chronological replay: decide at candle close, enter next candle open, settle at expiry close."""
     if interval not in INTERVAL_SECONDS:
         raise ValueError("Unsupported interval")
-    if expiry_bars not in (1, 2, 3):
-        raise ValueError("expiry_bars must be 1, 2 or 3")
+    if expiry_bars not in (1, 2, 3, 5):
+        raise ValueError("expiry_bars must be 1, 2, 3 or 5")
     if not 0 < payout <= 1 or stake <= 0 or initial_equity <= 0:
         raise ValueError("Invalid payout, stake or initial_equity")
 
