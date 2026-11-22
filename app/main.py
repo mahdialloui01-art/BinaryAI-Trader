@@ -458,12 +458,9 @@ async def binary_analysis(
             "confidence_calibrated": False,
             "message": "لا توجد حتى الآن أدلة اختبار مستقلة كافية تسمح بإصدار توصية دخول. التوقعات البحثية ليست احتمالات نجاح.",
         }
-        for horizon in report.get("horizon_forecasts", {}).values():
-            horizon["research_candidate"] = horizon.get("candidate", "NO_TRADE")
-            horizon["candidate"] = "NO_TRADE"
-            horizon["decision"] = "NO_TRADE"
-            if "STRATEGY_NOT_VALIDATED_FOR_LIVE_SIGNALS" not in horizon.setdefault("blockers", []):
-                horizon["blockers"].append("STRATEGY_NOT_VALIDATED_FOR_LIVE_SIGNALS")
+        # Preserve the analytical CALL/PUT forecast and research entry clock.
+        # Validation status remains NOT_VALIDATED, so these timestamps are research-only
+        # and must never be presented as an approved or executable live trade.
 
         # A timed entry is issued only after a fresh live tick confirms the closed-candle bias.
         # This is a research timing guide; it never places a Deriv contract.
