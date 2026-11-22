@@ -1,17 +1,47 @@
 from __future__ import annotations
 
+import math
+from datetime import datetime
 from typing import Any
 
 
-def _metrics(results: list[dict[str, Any]], initial_equity: float) -> dict[str, Any]:
+def _wilson_interval(wins: int, trials: int, z: float = 1.96) -> tuple[float | None, float | None]:
+    """Wilson score interval for a binomial rate; ties are excluded."""
+    if trials <= 0:
+        return None, None
+    rate = wins / trials
+    denominator = 1.0 + z * z / trials
+    center = (rate + z * z / (2.0 * trials)) / denominator
+    margin = z * math.sqrt((rate * (1.0 - rate) + z * z / (4.0 * trials)) / trials) / denominator
+    return max(0.0, center - margin), min(1.0, center + margin)
+
+
+def _timestamp_key(value: Any) -> float | None:
+    if isinstance(value, (int, float)):
+        stamp = float(value)
+        return stamp / 1000.0 if stamp > 10_000_000_000 else stamp
+    if value is None:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            raise ValueError("Timestamp must include a timezone")
+        return parsed.timestamp()
+    except (TypeError, ValueError, OverflowError, OSError) as exc:
+        raise ValueError("Invalid candle timestamp") from exc
+
+
+def _metrics(results: list[dict[str, Any]], initial_equity: float, payout: float) -> dict[str, Any]:
     wins = sum(r["outcome"] == "WIN" for r in results)
     losses = sum(r["outcome"] == "LOSS" for r in results)
     ties = sum(r["outcome"] == "TIE" for r in results)
     decisive = wins + losses
+    lower, upper = _wilson_interval(wins, decisive)
     equity = initial_equity
     peak = equity
     max_drawdown = 0.0
     losing_streak = current_streak = 0
+    gross_profit = gross_loss = 0.0
     pnl_values = []
     for result in results:
         pnl = result["pnl"]
@@ -20,19 +50,27 @@ def _metrics(results: list[dict[str, Any]], initial_equity: float) -> dict[str, 
         peak = max(peak, equity)
         if peak > 0:
             max_drawdown = max(max_drawdown, (peak - equity) / peak)
+        gross_profit += max(0.0, pnl)
+        gross_loss += max(0.0, -pnl)
         if result["outcome"] == "LOSS":
             current_streak += 1
             losing_streak = max(losing_streak, current_streak)
         elif result["outcome"] == "WIN":
             current_streak = 0
     total_pnl = sum(pnl_values)
+    win_rate = wins / decisive if decisive else None
     return {
         "trades": len(results),
         "wins": wins,
         "losses": losses,
         "ties": ties,
-        "win_rate_excluding_ties": wins / decisive if decisive else None,
+        "decisive_trades": decisive,
+        "win_rate_excluding_ties": win_rate,
         "win_rate_ties_as_losses": wins / (wins + losses + ties) if results else None,
+        "win_rate_wilson_95": {"lower": lower, "upper": upper},
+        "break_even_win_rate": round(1.0 / (1.0 + payout), 8),
+        "win_rate_edge_over_break_even": round(win_rate - 1.0 / (1.0 + payout), 8) if win_rate is not None else None,
+        "profit_factor": round(gross_profit / gross_loss, 8) if gross_loss > 0 else None,
         "net_pnl": round(total_pnl, 8),
         "expectancy_per_trade": round(total_pnl / len(results), 8) if results else None,
         "max_consecutive_losses": losing_streak,
@@ -74,13 +112,16 @@ def evaluate_binary_trades(
             o, h, low, c = (float(candle[k]) for k in ("open", "high", "low", "close"))
         except (KeyError, TypeError, ValueError) as exc:
             raise ValueError(f"Malformed OHLC candle at index {i}") from exc
+        if not all(math.isfinite(x) for x in (o, h, low, c)):
+            raise ValueError(f"Invalid non-finite OHLC values at index {i}")
         if min(o, h, low, c) <= 0 or h < max(o, c, low) or low > min(o, c, h):
             raise ValueError(f"Invalid OHLC values at index {i}")
         timestamp = candle.get("timestamp", candle.get("time"))
-        if timestamp is not None:
-            if previous_timestamp is not None and str(timestamp) <= str(previous_timestamp):
+        key = _timestamp_key(timestamp)
+        if key is not None:
+            if previous_timestamp is not None and key <= previous_timestamp:
                 raise ValueError("Candles must be strictly chronological")
-            previous_timestamp = timestamp
+            previous_timestamp = key
 
     normalized = []
     seen = set()
@@ -134,13 +175,13 @@ def evaluate_binary_trades(
         "stake": stake,
         "tie_rule": tie_rule,
         "lookahead_note": "Entry uses the selected candle OPEN; settlement uses its close at the configured expiry. Signals themselves are supplied by the caller and are not generated or validated here.",
-        "overall": _metrics(normalized, initial_equity),
+        "overall": _metrics(normalized, initial_equity, payout),
         "chronological_splits": {
             name: {
                 "entry_index_range": [0, train_end - 1] if name == "train" else
                     [train_end, validation_end - 1] if name == "validation" else
                     [validation_end, n - 1],
-                **_metrics(items, initial_equity),
+                **_metrics(items, initial_equity, payout),
             }
             for name, items in splits.items()
         },
