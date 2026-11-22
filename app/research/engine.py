@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-ENGINE_VERSION = "2.2.0"
+ENGINE_VERSION = "2.3.0"
 INTERVAL_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400}
 
 
@@ -298,8 +298,9 @@ def analyze_binary_options(
     interval: str = "1m",
     higher_timeframes: dict[str, list[dict[str, Any]]] | None = None,
     as_of: datetime | None = None,
+    research_mode: bool = False,
 ) -> dict[str, Any]:
-    """Multi-factor, closed-candle binary-options research. Score is confluence, never win probability."""
+    """Multi-factor analysis. Live mode fails closed until the strategy has independent validation."""
     bars = _valid_candles(candles)
     base = {
         "symbol": symbol, "provider": "deriv", "interval": interval,
@@ -309,7 +310,7 @@ def analyze_binary_options(
     }
     if len(bars) < 120:
         return {**base, "decision": "NO_TRADE", "candidate": "NO_TRADE", "score": 0,
-                "confidence": 0, "status": "insufficient_data", "candles_used": len(bars),
+                "confidence": None, "confidence_status": "NOT_CALIBRATED", "confluence_score": 0, "status": "insufficient_data", "candles_used": len(bars),
                 "rationale": ["يلزم 120 شمعة مغلقة وصحيحة على الأقل."],
                 "blockers": ["INSUFFICIENT_CLOSED_CANDLES"], "modules": {}}
 
@@ -423,6 +424,10 @@ def analyze_binary_options(
         blockers.append("CONFLUENCE_BELOW_72")
     if margin < 22:
         blockers.append("DIRECTIONAL_EDGE_TOO_SMALL")
+    # Production signals remain disabled until a strategy passes a sufficiently
+    # large, untouched chronological test and subsequent forward observation.
+    if not research_mode:
+        blockers.append("STRATEGY_NOT_VALIDATED_FOR_LIVE_SIGNALS")
 
     decision = candidate if not blockers else "NO_TRADE"
     seconds = INTERVAL_SECONDS.get(interval, 60)
@@ -436,8 +441,9 @@ def analyze_binary_options(
         expiry_bars = 1
     return {
         **base, "decision": decision, "candidate": candidate,
-        "score": score, "long_score": long_score, "short_score": short_score,
-        "directional_margin": margin, "confidence": round(score / 100, 2),
+        "score": score, "confluence_score": score, "long_score": long_score, "short_score": short_score,
+        "directional_margin": margin, "confidence": None, "confidence_status": "NOT_CALIBRATED",
+        "score_label": "CONFLUENCE_SCORE_NOT_WIN_PROBABILITY",
         "status": "signal_candidate" if decision != "NO_TRADE" else "wait",
         "candles_used": len(bars), "latest_closed_candle": last.get("timestamp"),
         "quality": quality,
