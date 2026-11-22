@@ -11,7 +11,7 @@ from app.storage import CandleStore
 
 from pydantic import BaseModel, Field
 from app.research.backtest import evaluate_binary_trades
-from app.research.engine import analyze_binary_options
+from app.research.engine import ENGINE_VERSION, analyze_binary_options
 from app.research.walk_forward import walk_forward_binary_options
 
 class ResearchEvaluationRequest(BaseModel):
@@ -410,20 +410,25 @@ async def binary_analysis(
     service = data_service()
     try:
         frames = [interval, *higher_map[interval]]
-        contract_check, results, live_tick = await asyncio.gather(
-            service.reference.binary_contracts_for(symbol.upper()),
-            asyncio.gather(*[
-                service.reference_candles(symbol.upper(), tf, limit if tf == interval else 120)
-                for tf in frames
-            ]),
-            service.reference_tick(symbol.upper()),
+        # Bound the complete analysis request. The Deriv adapter also limits
+        # concurrent sockets and retries one transient WebSocket failure.
+        contract_check, results, live_tick = await asyncio.wait_for(
+            asyncio.gather(
+                service.reference.binary_contracts_for(symbol.upper()),
+                asyncio.gather(*[
+                    service.reference_candles(symbol.upper(), tf, limit if tf == interval else 120)
+                    for tf in frames
+                ]),
+                service.reference_tick(symbol.upper()),
+            ),
+            timeout=45.0,
         )
         if not contract_check.get("binary_options_available"):
             return {
                 "symbol": symbol.upper(), "provider": "deriv", "decision": "NO_TRADE",
                 "candidate": "NO_TRADE", "score": 0, "confidence": 0,
                 "status": "no_binary_contract", "execution_enabled": False,
-                "engine_version": "2.1.0", "score_is_probability": False,
+                "engine_version": ENGINE_VERSION, "score_is_probability": False,
                 "rationale": ["Deriv لا يعرض حالياً عقد Binary Options متاحاً لهذا الأصل."],
                 "blockers": ["NO_AVAILABLE_BINARY_OPTIONS_CONTRACT"],
                 "available_contracts": 0,
@@ -530,8 +535,13 @@ async def binary_analysis(
             "note": "العدادات المعروضة تُحسب من وقت استجابة الخادم؛ لا يتم تنفيذ أي عقد تلقائياً.",
         }
         return report
+    except asyncio.TimeoutError as exc:
+        raise HTTPException(
+            status_code=504,
+            detail="انتهت مهلة جلب بيانات التحليل من Deriv. أعد المحاولة؛ لم يتم إصدار إشارة اعتماداً على بيانات ناقصة.",
+        ) from exc
     except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Binary analysis failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"Binary analysis feed error: {exc}") from exc
 
 
 
