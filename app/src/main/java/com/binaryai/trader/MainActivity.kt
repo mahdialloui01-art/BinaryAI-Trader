@@ -318,8 +318,9 @@ class MainActivity : Activity() {
     private fun buildLab() {
         addSection(page, "محرك التحليل الاحترافي")
         val intro = card()
-        intro.addView(label("BinaryAI Research Engine 2.0", 16f, Color.WHITE, true))
+        intro.addView(label("BinaryAI Research Engine 2.3.0", 16f, Color.WHITE, true))
         intro.addView(label("تحليل متعدد الطبقات للشموع المغلقة: اتجاه وبنية السوق BOS، سحب السيولة، FVG، حركة السعر، الزخم، RSI وMACD وADX وATR، Bollinger، وتوافق إطارين أعلى. لا يصدر قراراً عند ضعف البيانات أو تعارض الأدلة.", 12f, Color.WHITE))
+        intro.addView(label("حالة الاستراتيجية: غير مثبتة بعد — التوصيات المباشرة متوقفة. لا تدخل صفقة اعتماداً على هذا التقرير.", 12f, Color.rgb(255,194,91), true))
         page.addView(intro)
         addGap(page)
         val rules = card()
@@ -354,7 +355,8 @@ class MainActivity : Activity() {
             target.addView(label("توقعات الآفاق الزمنية غير متاحة في هذا التقرير.", 11f, muted))
             return
         }
-        target.addView(label("بطاقات القرار المباشر — توقيت الجزائر (UTC+1)", 12f, muted, true))
+        target.addView(label("توقعات بحثية فقط — لا توجد إشارة دخول معتمدة حالياً", 12f, Color.rgb(255,194,91), true))
+        target.addView(label("المحرك يمنع CALL/PUT القابلين للتنفيذ حتى اجتياز اختبار مستقل كافٍ. درجة التوافق ليست نسبة نجاح.", 10f, muted))
         for (key in listOf("1m", "2m", "5m")) {
             val item = forecasts.optJSONObject(key) ?: continue
             val decision = item.optString("decision", "NO_TRADE")
@@ -455,7 +457,9 @@ class MainActivity : Activity() {
             return "نسبة النجاح التاريخية: عينة الاختبار غير كافية ($trades صفقة)"
         }
         val pct = (rate.toString().toDoubleOrNull() ?: return "نسبة النجاح التاريخية: غير متاحة") * 100.0
-        return "نجاح تاريخي في عينة الاختبار: " + String.format(java.util.Locale.US, "%.1f", pct) + "%  •  $trades صفقة"
+        val wins = test?.optInt("wins", 0) ?: 0
+        val losses = test?.optInt("losses", 0) ?: 0
+        return "نتيجة تاريخية فقط: " + String.format(java.util.Locale.US, "%.1f", pct) + "%  •  $wins فوز / $losses خسارة من $trades صفقة. ليست توقعاً للصفقة القادمة."
     }
 
     private fun renderAnalysisReport(target: LinearLayout, data: JSONObject) {
