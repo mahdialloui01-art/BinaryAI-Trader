@@ -449,6 +449,19 @@ async def binary_analysis(
         report = analyze_binary_options(base, symbol.upper(), interval, higher)
         report["binary_contracts_available"] = len(contract_check.get("available", []))
         report["binary_options_available"] = True
+        # Do not expose any unvalidated horizon as an actionable live signal.
+        report["strategy_validation"] = {
+            "status": "NOT_VALIDATED",
+            "live_signal_allowed": False,
+            "confidence_calibrated": False,
+            "message": "لا توجد حتى الآن أدلة اختبار مستقلة كافية تسمح بإصدار توصية دخول. التوقعات البحثية ليست احتمالات نجاح.",
+        }
+        for horizon in report.get("horizon_forecasts", {}).values():
+            horizon["research_candidate"] = horizon.get("candidate", "NO_TRADE")
+            horizon["candidate"] = "NO_TRADE"
+            horizon["decision"] = "NO_TRADE"
+            if "STRATEGY_NOT_VALIDATED_FOR_LIVE_SIGNALS" not in horizon.setdefault("blockers", []):
+                horizon["blockers"].append("STRATEGY_NOT_VALIDATED_FOR_LIVE_SIGNALS")
 
         # A timed entry is issued only after a fresh live tick confirms the closed-candle bias.
         # This is a research timing guide; it never places a Deriv contract.
