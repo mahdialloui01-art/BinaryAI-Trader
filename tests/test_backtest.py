@@ -57,3 +57,32 @@ def test_duplicate_trade_index_rejected(candles):
             {"direction": "CALL", "entry_index": 0},
             {"direction": "PUT", "entry_index": 0},
         ])
+
+
+
+def test_backtest_reports_payout_adjusted_wilson_bounds(candles):
+    result = evaluate_binary_trades(candles, [
+        {"direction": "CALL", "entry_index": 0},
+        {"direction": "PUT", "entry_index": 1},
+        {"direction": "CALL", "entry_index": 2},
+    ], payout=0.8)
+    metrics = result["overall"]
+    assert metrics["break_even_win_rate"] == 0.55555556
+    assert metrics["win_rate_wilson_95"]["lower"] <= metrics["win_rate_excluding_ties"]
+    assert metrics["win_rate_wilson_95"]["upper"] >= metrics["win_rate_excluding_ties"]
+    assert metrics["decisive_trades"] == 2
+
+
+def test_backtest_rejects_non_finite_ohlc(candles):
+    candles[0]["close"] = float("nan")
+    with pytest.raises(ValueError, match="non-finite"):
+        evaluate_binary_trades(candles, [])
+
+
+def test_backtest_compares_numeric_timestamps_as_time_not_text():
+    rows = [
+        {"timestamp": 1700000000000, "open": 100, "high": 102, "low": 99, "close": 101},
+        {"timestamp": 1700000060000, "open": 101, "high": 103, "low": 100, "close": 102},
+    ]
+    result = evaluate_binary_trades(rows, [])
+    assert result["overall"]["trades"] == 0
