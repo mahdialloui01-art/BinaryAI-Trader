@@ -85,3 +85,24 @@ def test_research_mode_can_replay_candidates_without_enabling_live_signals():
     assert "STRATEGY_NOT_VALIDATED_FOR_LIVE_SIGNALS" not in result["blockers"]
     assert result["execution_enabled"] is False
     assert result["confidence"] is None
+
+
+
+def test_engine_sorts_newest_first_candle_batches_chronologically():
+    now = datetime.now(timezone.utc)
+    rows = _trend_candles(count=160, start=now - timedelta(seconds=160 * 60))
+    ordered = analyze_binary_options(rows, "EURUSD", "1m", research_mode=True)
+    reversed_result = analyze_binary_options(list(reversed(rows)), "EURUSD", "1m", research_mode=True)
+    assert reversed_result["latest_closed_candle"] == ordered["latest_closed_candle"]
+    assert reversed_result["indicators"] == ordered["indicators"]
+    assert reversed_result["research_candidate"] == ordered["research_candidate"]
+
+
+def test_engine_rejects_future_dated_candles():
+    now = datetime.now(timezone.utc)
+    rows = _trend_candles(count=160, start=now + timedelta(minutes=5))
+    result = analyze_binary_options(rows, "EURUSD", "1m", as_of=now, research_mode=True)
+    assert result["quality"]["future_timestamp_detected"] is True
+    assert result["quality"]["stale"] is True
+    assert result["decision"] == "NO_TRADE"
+    assert "STALE_CLOSED_CANDLES" in result["blockers"]
