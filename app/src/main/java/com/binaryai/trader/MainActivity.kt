@@ -343,15 +343,24 @@ class MainActivity : Activity() {
             val entryRaw = item.optString("entry_time_algeria", "")
             val expiryRaw = item.optString("expiry_time_algeria", "")
             if (decision == "CALL" || decision == "PUT") {
-                box.addView(label("وقت الدخول: ${formatSignalTime(entryRaw)}", 16f, Color.WHITE, true))
+                val lead = item.optInt("alert_lead_seconds", 0)
+                val leadText = if (lead >= 120) "دقيقتين" else if (lead == 60) "دقيقة واحدة" else "غير محدد"
+                box.addView(label("تنبيه مسبق: الدخول بعد $leadText", 13f, Color.rgb(255,194,91), true))
+                box.addView(label("وقت الدخول المحدد: ${formatSignalTime(entryRaw)}", 16f, Color.WHITE, true))
                 box.addView(label("وقت الانتهاء: ${formatSignalTime(expiryRaw)}", 13f, mint, true))
-                box.addView(label("صلاحية الإشارة: 5 ثوانٍ من لحظة إصدارها — أعد التحليل إذا انتهت.", 10f, Color.rgb(255,194,91)))
+                box.addView(label("مدة الصفقة بعد الدخول: ${item.optInt("duration_seconds", 0)} ثانية", 11f, Color.WHITE))
+                box.addView(label("ضروري: أعد التحليل قبل الدخول بـ10 ثوانٍ. لا تدخل إذا تغير الاتجاه أو ظهرت موانع.", 10f, Color.rgb(255,194,91)))
             } else {
                 box.addView(label("الدخول: انتظار تأكيد حي — لا تدخل الآن", 12f, Color.rgb(255,194,91), true))
             }
             val historical = historicalWinRateLabel(data.optString("symbol"), data.optString("interval"))
             box.addView(label(historical, 11f, Color.WHITE, true))
-            box.addView(label("الحالة: " + if (entryStatus == "LIVE_TICK_CONFIRMED") "تأكيد Tick حي" else "انتظار / إلغاء الإشارة", 10f, if (entryStatus == "LIVE_TICK_CONFIRMED") mint else muted))
+            val statusText = when (entryStatus) {
+                "PRE_ALERT_SCHEDULED" -> "تنبيه مسبق مجدول — إعادة تأكيد مطلوبة قبل الدخول"
+                "LIVE_TICK_CONFIRMED" -> "تأكيد Tick حي"
+                else -> "انتظار / إلغاء الإشارة"
+            }
+            box.addView(label("الحالة: $statusText", 10f, if (entryStatus == "PRE_ALERT_SCHEDULED") Color.rgb(255,194,91) else muted))
             val evidence = item.optJSONArray("evidence")
             if (evidence != null) {
                 val parts = ArrayList<String>()
