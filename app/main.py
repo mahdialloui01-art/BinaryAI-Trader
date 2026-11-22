@@ -577,7 +577,7 @@ async def research_walk_forward(
     interval: str = Query(default="1m", pattern="^(1m|5m|15m)$"),
     limit: int = Query(default=1500, ge=180, le=2000),
     payout: float = Query(default=0.80, gt=0, le=1),
-    expiry_bars: int = Query(default=1, ge=1, le=3),
+    expiry_bars: int = Query(default=1, ge=1, le=5),
     stake: float = Query(default=1.0, gt=0),
 ):
     """Run a chronological, no-lookahead historical replay of the production signal rules."""
