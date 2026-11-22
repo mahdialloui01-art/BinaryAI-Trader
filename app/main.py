@@ -490,21 +490,29 @@ async def binary_analysis(
                 item["duration_seconds"] = minutes * 60
                 item["recommendation_valid_until_utc"] = None
             else:
-                entry_at = max(timing_now, tick_time)
+                # Send the user an advance notice, then require a fresh analysis near entry.
+                # The forecast duration (1/2/5 minutes) is separate from the notice lead.
+                lead_seconds = 60 if minutes == 1 else 120
+                entry_at = timing_now + timedelta(seconds=lead_seconds)
                 expiry_at = entry_at + timedelta(seconds=minutes * 60)
-                valid_until = entry_at + timedelta(seconds=5)
-                item["entry_status"] = "LIVE_TICK_CONFIRMED"
+                recheck_at = entry_at - timedelta(seconds=10)
+                item["entry_status"] = "PRE_ALERT_SCHEDULED"
+                item["alert_lead_seconds"] = lead_seconds
+                item["pre_alert_time_utc"] = timing_now.isoformat()
+                item["pre_alert_time_algeria"] = timing_now.astimezone(local_tz).isoformat()
                 item["entry_time_utc"] = entry_at.isoformat()
                 item["entry_time_algeria"] = entry_at.astimezone(local_tz).isoformat()
+                item["pre_entry_recheck_at_utc"] = recheck_at.isoformat()
+                item["pre_entry_recheck_at_algeria"] = recheck_at.astimezone(local_tz).isoformat()
                 item["expiry_time_utc"] = expiry_at.isoformat()
                 item["expiry_time_algeria"] = expiry_at.astimezone(local_tz).isoformat()
                 item["duration_seconds"] = minutes * 60
-                item["recommendation_valid_until_utc"] = valid_until.isoformat()
+                item["recommendation_valid_until_utc"] = recheck_at.isoformat()
                 item["entry_countdown_seconds"] = max(0, round((entry_at - timing_now).total_seconds(), 1))
                 item["expiry_countdown_seconds"] = minutes * 60
                 item["entry_tick_price"] = tick_price
                 item["reference_closed_price"] = reference_close
-                item["timing_note"] = "وقت الدخول مبني على تأكيد آخر tick من Deriv؛ أعد التحليل إذا تجاوزت صلاحية الإشارة 5 ثوانٍ."
+                item["timing_note"] = "تنبيه مسبق فقط؛ أعد التحليل قبل الدخول بـ10 ثوانٍ للتأكد من استمرار الاتجاه وحداثة السعر. لا تدخل إذا تغير القرار أو ظهرت موانع."
         report["timing"] = {
             "timezone": "Africa/Algiers",
             "live_tick_age_seconds": round(tick_age, 2) if tick_age is not None else None,
@@ -512,6 +520,7 @@ async def binary_analysis(
             "live_tick_price": tick_price,
             "reference_closed_price": reference_close,
             "entry_validity_seconds": 5,
+            "scheduled_entry_notice": "1 minute for 1m expiry; 2 minutes for 2m and 5m expiry; fresh re-analysis required 10 seconds before entry.",
             "note": "العدادات المعروضة تُحسب من وقت استجابة الخادم؛ لا يتم تنفيذ أي عقد تلقائياً.",
         }
         return report
