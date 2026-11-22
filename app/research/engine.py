@@ -225,6 +225,7 @@ def _time_quality(bars: list[dict[str, Any]], interval: str, as_of: datetime | N
         if stamp:
             stamps.append(stamp)
     seconds = INTERVAL_SECONDS.get(interval, 60)
+    stamps.sort()
     gaps = 0
     if len(stamps) > 1:
         for a, b in zip(stamps, stamps[1:]):
@@ -232,7 +233,6 @@ def _time_quality(bars: list[dict[str, Any]], interval: str, as_of: datetime | N
             if delta > seconds * 1.5:
                 gaps += max(1, round(delta / seconds) - 1)
     reference_time = as_of or datetime.now(timezone.utc)
-    stamps.sort()
     raw_age = (reference_time - stamps[-1]).total_seconds() if stamps else None
     future_timestamp = raw_age is not None and raw_age < -5
     latest_age = max(0.0, raw_age) if raw_age is not None else None
