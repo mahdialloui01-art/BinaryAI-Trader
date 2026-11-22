@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-ENGINE_VERSION = "2.3.0"
+ENGINE_VERSION = "2.4.0"
 INTERVAL_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400}
 
 
@@ -314,6 +314,68 @@ def _directional_horizon_forecasts(
     return horizons
 
 
+
+def _entry_zone(
+    bars: list[dict[str, Any]],
+    atr: float,
+    direction: str,
+    structure: dict[str, Any],
+    fvg: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Build a pullback zone from nearby technical levels; this is not an order price."""
+    closes = [bar["close"] for bar in bars]
+    price = closes[-1]
+    if atr <= 0 or direction not in ("CALL", "PUT"):
+        return {"status": "UNAVAILABLE", "direction": direction, "reason": "ATR_OR_DIRECTION_UNAVAILABLE"}
+
+    ema21 = _ema(closes, 21)[-1]
+    raw_levels: list[tuple[str, float]] = [("EMA21", ema21)]
+    swing_key = "swing_lows" if direction == "CALL" else "swing_highs"
+    raw_levels.extend((("RECENT_SWING", float(level)) for level in structure.get(swing_key, [])[-3:]))
+    if fvg and fvg.get("type") == ("BULLISH" if direction == "CALL" else "BEARISH"):
+        raw_levels.append(("FVG_MIDPOINT", (float(fvg["low"]) + float(fvg["high"])) / 2))
+
+    # Only levels close enough to current price to be plausible pullback references.
+    if direction == "CALL":
+        eligible = [(name, level) for name, level in raw_levels if price - 1.5 * atr <= level <= price + 0.10 * atr]
+    else:
+        eligible = [(name, level) for name, level in raw_levels if price - 0.10 * atr <= level <= price + 1.5 * atr]
+    if not eligible:
+        eligible = [("EMA21_FALLBACK", ema21)]
+
+    nearest_distance = min(abs(price - level) for _, level in eligible)
+    cluster = [(name, level) for name, level in eligible if abs(abs(price - level) - nearest_distance) <= 0.30 * atr]
+    center = sum(level for _, level in cluster) / len(cluster)
+    half_width = max(0.08 * atr, abs(price) * 0.00001)
+    zone_low, zone_high = center - half_width, center + half_width
+
+    in_zone = zone_low <= price <= zone_high
+    rejection = (direction == "CALL" and _candle_context(bars)["bullish"]) or (
+        direction == "PUT" and _candle_context(bars)["bearish"]
+    )
+    if direction == "CALL":
+        state = "WAIT_FOR_REJECTION" if in_zone and not rejection else "CONFIRMATION_CANDLE_PRESENT" if in_zone else "WAIT_FOR_PULLBACK" if price > zone_high else "ZONE_INVALIDATED"
+        invalidation = zone_low - 0.45 * atr
+    else:
+        state = "WAIT_FOR_REJECTION" if in_zone and not rejection else "CONFIRMATION_CANDLE_PRESENT" if in_zone else "WAIT_FOR_PULLBACK" if price < zone_low else "ZONE_INVALIDATED"
+        invalidation = zone_high + 0.45 * atr
+
+    return {
+        "direction": direction,
+        "status": state,
+        "zone_low": round(zone_low, 10),
+        "zone_high": round(zone_high, 10),
+        "zone_mid": round(center, 10),
+        "current_close": round(price, 10),
+        "invalidation_level": round(invalidation, 10),
+        "atr14": round(atr, 10),
+        "width_atr": round((zone_high - zone_low) / atr, 3),
+        "contributing_levels": [{"source": name, "price": round(level, 10)} for name, level in cluster],
+        "confirmation_required": "شمعة رفض/ابتلاع مغلقة في اتجاه الإشارة ثم إعادة فحص السعر اللحظي.",
+        "note": "نطاق بحثي تقريبي؛ لا تدخل لمجرد لمس المنطقة، ولا يمثل أمراً أو ضماناً.",
+    }
+
+
 def analyze_binary_options(
     candles: list[dict[str, Any]],
     symbol: str,
@@ -446,12 +508,19 @@ def analyze_binary_options(
         blockers.append("CONFLUENCE_BELOW_72")
     if margin < 22:
         blockers.append("DIRECTIONAL_EDGE_TOO_SMALL")
-    # Production signals remain disabled until a strategy passes a sufficiently
-    # large, untouched chronological test and subsequent forward observation.
-    if not research_mode:
-        blockers.append("STRATEGY_NOT_VALIDATED_FOR_LIVE_SIGNALS")
-
+    # Keep technical CALL/PUT conditions visible. Validation is reported separately:
+    # a research signal is never authorization to execute a live binary contract.
     decision = candidate if not blockers else "NO_TRADE"
+    signal_authorization = {
+        "live_signal_allowed": False,
+        "execution_enabled": False,
+        "validation_status": "NOT_VALIDATED",
+        "reason": "تظهر شروط CALL/PUT البحثية بعد اجتياز موانع التحليل فقط؛ لا يوجد اعتماد للتنفيذ الحقيقي.",
+    }
+    entry_zone = _entry_zone(bars, atr, candidate, structure, fvg) if candidate in ("CALL", "PUT") else {
+        "status": "NO_DIRECTIONAL_CANDIDATE",
+        "note": "لا توجد جهة واضحة لتحديد منطقة دخول.",
+    }
     seconds = INTERVAL_SECONDS.get(interval, 60)
     expiry_candidates = [1, 2, 3]
     # Recommend a research horizon, never a broker contract instruction.
@@ -462,11 +531,12 @@ def analyze_binary_options(
     else:
         expiry_bars = 1
     return {
-        **base, "decision": decision, "candidate": candidate if research_mode else "NO_TRADE",
-        "research_candidate": candidate, "score": score, "confluence_score": score, "long_score": long_score, "short_score": short_score,
+        **base, "decision": decision, "candidate": candidate,
+        "research_candidate": candidate, "signal_authorization": signal_authorization,
+        "entry_zone": entry_zone, "score": score, "confluence_score": score, "long_score": long_score, "short_score": short_score,
         "directional_margin": margin, "confidence": None, "confidence_status": "NOT_CALIBRATED",
         "score_label": "CONFLUENCE_SCORE_NOT_WIN_PROBABILITY",
-        "status": "signal_candidate" if decision != "NO_TRADE" else "wait",
+        "status": "research_signal_candidate" if decision in ("CALL", "PUT") else "wait",
         "candles_used": len(bars), "latest_closed_candle": last.get("timestamp"),
         "quality": quality,
         "market_regime": regime,
