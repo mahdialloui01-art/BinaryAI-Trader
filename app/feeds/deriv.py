@@ -15,17 +15,35 @@ class DerivFeed:
     def __init__(self, url: str = PUBLIC_WS, timeout: float = 15.0):
         self.url = url
         self.timeout = timeout
+        # Analysis fans out to several Deriv requests. Keep the connection count
+        # bounded so a burst does not trigger provider-side WebSocket rejections.
+        self._request_semaphore = asyncio.Semaphore(3)
 
     async def _request(self, payload: dict, expected: str):
-        async with websockets.connect(self.url, open_timeout=self.timeout, ping_interval=20, ping_timeout=20) as ws:
-            await ws.send(json.dumps(payload))
-            while True:
-                raw = await asyncio.wait_for(ws.recv(), timeout=self.timeout)
-                msg = json.loads(raw)
-                if msg.get("error"):
-                    raise RuntimeError(msg["error"].get("message", "Deriv API error"))
-                if msg.get("msg_type") == expected:
-                    return msg
+        async with self._request_semaphore:
+            last_error = None
+            for attempt in range(2):
+                try:
+                    async with websockets.connect(
+                        self.url, open_timeout=self.timeout,
+                        ping_interval=20, ping_timeout=20,
+                    ) as ws:
+                        await ws.send(json.dumps(payload))
+                        while True:
+                            raw = await asyncio.wait_for(ws.recv(), timeout=self.timeout)
+                            msg = json.loads(raw)
+                            if msg.get("error"):
+                                raise RuntimeError(msg["error"].get("message", "Deriv API error"))
+                            if msg.get("msg_type") == expected:
+                                return msg
+                except RuntimeError:
+                    # Provider-declared errors are not transient connection failures.
+                    raise
+                except (asyncio.TimeoutError, OSError, websockets.exceptions.WebSocketException) as exc:
+                    last_error = exc
+                    if attempt == 0:
+                        await asyncio.sleep(0.35)
+            raise RuntimeError(f"Deriv WebSocket request failed after retry: {last_error}") from last_error
 
     async def symbols(self):
         msg = await self._request({"active_symbols":"brief"}, "active_symbols")
