@@ -440,8 +440,8 @@ def analyze_binary_options(
     else:
         expiry_bars = 1
     return {
-        **base, "decision": decision, "candidate": candidate,
-        "score": score, "confluence_score": score, "long_score": long_score, "short_score": short_score,
+        **base, "decision": decision, "candidate": candidate if research_mode else "NO_TRADE",
+        "research_candidate": candidate, "score": score, "confluence_score": score, "long_score": long_score, "short_score": short_score,
         "directional_margin": margin, "confidence": None, "confidence_status": "NOT_CALIBRATED",
         "score_label": "CONFLUENCE_SCORE_NOT_WIN_PROBABILITY",
         "status": "signal_candidate" if decision != "NO_TRADE" else "wait",
