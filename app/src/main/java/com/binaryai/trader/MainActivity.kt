@@ -488,6 +488,23 @@ class MainActivity : Activity() {
         val color = if (decision == "CALL") mint else if (decision == "PUT") red else Color.rgb(255,194,91)
         target.addView(label("$decision  •  $score/100", 24f, color, true))
         renderHorizonForecasts(target, data)
+        val entryZone = data.optJSONObject("entry_zone")
+        if (entryZone != null && entryZone.optString("status") != "NO_DIRECTIONAL_CANDIDATE") {
+            target.addView(label("منطقة الدخول الدقيقة — ${entryZone.optString("direction")}", 13f, Color.WHITE, true))
+            target.addView(label("النطاق: ${display(entryZone.opt("zone_low"))} — ${display(entryZone.opt("zone_high"))}", 13f, mint, true))
+            target.addView(label("السعر الحالي: ${display(entryZone.opt("current_close"))} | الحالة: ${entryZone.optString("status")}", 11f))
+            target.addView(label("مستوى إبطال الفكرة: ${display(entryZone.opt("invalidation_level"))}", 11f, Color.rgb(255,194,91)))
+            val levels = entryZone.optJSONArray("contributing_levels")
+            if (levels != null) for (i in 0 until levels.length()) {
+                val level = levels.optJSONObject(i) ?: continue
+                target.addView(label("• ${level.optString("source")}: ${display(level.opt("price"))}", 10f))
+            }
+            target.addView(label(entryZone.optString("confirmation_required"), 10f))
+        }
+        val authorization = data.optJSONObject("signal_authorization")
+        if (authorization != null && !authorization.optBoolean("live_signal_allowed", false)) {
+            target.addView(label("إشارة بحثية فقط — التنفيذ الحقيقي غير معتمد.", 10f, Color.rgb(255,194,91)))
+        }
         target.addView(label("الأصل: ${data.optString("symbol")}  |  الإطار: ${data.optString("interval")}  |  المحرك: ${data.optString("engine_version")}", 10f))
         target.addView(label("CALL: ${data.optInt("long_score")}  |  PUT: ${data.optInt("short_score")}  |  هامش الاتجاه: ${data.optInt("directional_margin")}", 12f, Color.WHITE))
         val mtf = data.optJSONObject("higher_timeframes")
