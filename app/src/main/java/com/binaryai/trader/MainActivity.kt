@@ -25,12 +25,14 @@ import okhttp3.RequestBody
 import okhttp3.Request
 import okhttp3.Response
 import java.util.concurrent.TimeUnit
+import java.time.OffsetDateTime
 import kotlin.math.max
 import kotlin.math.min
 
 class MainActivity : Activity() {
     private val io = Executors.newSingleThreadExecutor()
     private val liveHandler = Handler(Looper.getMainLooper())
+    private val entryRecheckTasks = mutableMapOf<String, Runnable>()
     private var liveTickBusy = false
     private var liveCandlesBusy = false
     private var liveQualityBusy = false
@@ -392,7 +394,12 @@ class MainActivity : Activity() {
                 timingPanel.addView(label("انتهاء العقد: ${formatSignalTime(expiryRaw)}", 12f, mint, true))
                 timingPanel.addView(label("مدة العقد: ${item.optInt("duration_seconds", 0)} ثانية", 11f, Color.WHITE))
                 box.addView(timingPanel)
-                box.addView(label("أعد التحليل قبل الدخول بـ10 ثوانٍ. هذا توقيت إرشادي وليس تنفيذًا آليًا.", 10f, Color.rgb(255,194,91)))
+                val recheckText = when (entryStatus) {
+                    "FINAL_CONFIRMED" -> "تأكيد نهائي ناجح قبل الدخول بـ10 ثوانٍ — تم الإبقاء على نفس الموعد."
+                    "FINAL_CHECK_FAILED" -> "فشل التأكيد النهائي — تم إلغاء الدخول وعدم تغيير الموعد."
+                    else -> "سيُعاد فحص السعر والاتجاه تلقائياً قبل الدخول بـ10 ثوانٍ."
+                }
+                box.addView(label(recheckText, 10f, if (entryStatus == "FINAL_CONFIRMED") mint else Color.rgb(255,194,91), true))
             } else {
                 box.addView(label("لا يوجد دخول مجدول حاليًا", 13f, Color.rgb(255,194,91), true))
                 box.addView(label("لن يظهر وقت الدخول إلا بعد توافق التحليل وتأكيد السعر الحي من Deriv.", 10f, muted))
@@ -403,6 +410,8 @@ class MainActivity : Activity() {
             box.addView(label(historical, 11f, Color.WHITE, true))
             val statusText = when (entryStatus) {
                 "PRE_ALERT_SCHEDULED" -> "موعد دخول مجدول — إعادة تأكيد مطلوبة"
+                "FINAL_CONFIRMED" -> "التأكيد النهائي ناجح — نفس وقت الدخول محفوظ"
+                "FINAL_CHECK_FAILED" -> "أُلغي الدخول — شروط التأكيد لم تعد صالحة"
                 "WAITING_FOR_CONFIRMATION" -> "بانتظار تأكيد شروط الدخول"
                 "LIVE_TICK_CONFIRMED" -> "تأكيد سعر حي"
                 else -> "لا يوجد موعد دخول صالح"
@@ -847,11 +856,96 @@ class MainActivity : Activity() {
         request("/analysis/${encodedSymbol()}?interval=1m&limit=250") { obj, error ->
             if (obj != null) {
                 lastAnalysis = obj
+                scheduleEntryRechecks(obj)
                 val decision = obj.optString("decision", "NO_TRADE")
                 val score = obj.optInt("score", 0)
                 toast("تحليل ${safeSymbol()}: $decision | $score/100")
                 if (activePage == "lab") showPage("lab")
             } else toast(error ?: "تعذر تحليل الأصل")
+        }
+    }
+
+    /**
+     * Re-check each scheduled research entry 10 seconds before its ORIGINAL entry time.
+     * A fresh server analysis must still show the same direction, no blockers and a
+     * live Deriv tick confirmation. The original entry/expiry timestamps are never moved.
+     * This is advisory only; Android must remain running with network access.
+     */
+    private fun scheduleEntryRechecks(report: JSONObject) {
+        for ((key, task) in entryRecheckTasks.toMap()) {
+            liveHandler.removeCallbacks(task)
+            entryRecheckTasks.remove(key)
+        }
+        val forecasts = report.optJSONObject("horizon_forecasts") ?: return
+        val symbolAtSchedule = report.optString("symbol").ifBlank { safeSymbol() }
+        for (key in listOf("1m", "2m", "5m")) {
+            val item = forecasts.optJSONObject(key) ?: continue
+            if (item.optString("timing_status") != "scheduled") continue
+            val direction = item.optString("decision")
+            if (direction != "CALL" && direction != "PUT") continue
+            val recheckAt = item.optString("pre_entry_recheck_at_utc")
+            val originalEntry = item.optString("entry_time_algeria")
+            val originalExpiry = item.optString("expiry_time_algeria")
+            if (recheckAt.isBlank() || originalEntry.isBlank() || originalExpiry.isBlank()) continue
+            val delay = try {
+                OffsetDateTime.parse(recheckAt).toInstant().toEpochMilli() - System.currentTimeMillis()
+            } catch (_: Exception) { continue }
+            if (delay < -5000L) {
+                item.put("entry_status", "FINAL_CHECK_FAILED")
+                item.put("timing_status", "cancelled")
+                item.put("final_check_reason", "MISSED_RECHECK_WINDOW")
+                continue
+            }
+            val task = Runnable {
+                entryRecheckTasks.remove(key)
+                runFinalEntryCheck(key, symbolAtSchedule, direction, originalEntry, originalExpiry)
+            }
+            entryRecheckTasks[key] = task
+            liveHandler.postDelayed(task, max(0L, delay))
+        }
+    }
+
+    private fun runFinalEntryCheck(
+        horizon: String,
+        scheduledSymbol: String,
+        originalDirection: String,
+        originalEntry: String,
+        originalExpiry: String
+    ) {
+        val forecasts = lastAnalysis.optJSONObject("horizon_forecasts") ?: return
+        val originalItem = forecasts.optJSONObject(horizon) ?: return
+        if (originalItem.optString("entry_status") != "PRE_ALERT_SCHEDULED") return
+        originalItem.put("entry_status", "FINAL_CHECK_RUNNING")
+        originalItem.put("final_check_requested_at", System.currentTimeMillis())
+        request("/analysis/$scheduledSymbol?interval=1m&limit=250") { fresh, error ->
+            val freshItem = fresh?.optJSONObject("horizon_forecasts")?.optJSONObject(horizon)
+            val freshDirection = freshItem?.optString("decision", "NO_TRADE") ?: "NO_TRADE"
+            val blockers = freshItem?.optJSONArray("blockers")
+            val noBlockers = blockers == null || blockers.length() == 0
+            val freshTickConfirmed = freshItem?.optString("timing_status") == "scheduled" &&
+                freshItem.optString("timing_reason").isBlank()
+            val valid = fresh != null && freshDirection == originalDirection &&
+                noBlockers && freshTickConfirmed
+            // Always retain the exact timestamps from the first alert.
+            originalItem.put("entry_time_algeria", originalEntry)
+            originalItem.put("expiry_time_algeria", originalExpiry)
+            if (valid) {
+                originalItem.put("entry_status", "FINAL_CONFIRMED")
+                originalItem.put("timing_status", "scheduled")
+                originalItem.put("final_check_reason", "SAME_DIRECTION_NO_BLOCKERS_LIVE_TICK_CONFIRMED")
+                originalItem.put("final_check_price", fresh.optJSONObject("timing")?.optDouble("live_tick_price") ?: JSONObject.NULL)
+            } else {
+                originalItem.put("entry_status", "FINAL_CHECK_FAILED")
+                originalItem.put("timing_status", "cancelled")
+                originalItem.put("final_check_reason", error ?: when {
+                    fresh == null -> "FRESH_ANALYSIS_UNAVAILABLE"
+                    freshDirection != originalDirection -> "DIRECTION_CHANGED"
+                    !noBlockers -> "ANALYSIS_BLOCKERS_PRESENT"
+                    else -> "LIVE_TICK_NOT_CONFIRMED"
+                })
+            }
+            if (activePage == "lab") showPage("lab")
+            toast(if (valid) "$horizon: تأكيد نهائي ناجح، نفس موعد الدخول محفوظ" else "$horizon: أُلغي الدخول؛ شروط التأكيد غير مكتملة")
         }
     }
 
