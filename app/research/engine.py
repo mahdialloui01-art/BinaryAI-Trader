@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-ENGINE_VERSION = "2.1.0"
+ENGINE_VERSION = "2.2.0"
 INTERVAL_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400}
 
 
@@ -152,6 +152,39 @@ def _fvg(bars: list[dict[str, Any]]) -> dict[str, Any] | None:
         if right["high"] < left["low"]:
             return {"type": "BEARISH", "low": right["high"], "high": left["low"], "index": i}
     return None
+
+
+
+def _market_regime(bars: list[dict[str, Any]]) -> dict[str, Any]:
+    """Classify trend efficiency and volatility expansion without fitting on future bars."""
+    closes = [bar["close"] for bar in bars]
+    window = min(20, len(closes) - 1)
+    path = sum(abs(closes[i] - closes[i - 1]) for i in range(len(closes) - window, len(closes)))
+    net = abs(closes[-1] - closes[-1 - window])
+    efficiency = net / max(path, 1e-12)
+
+    tr = _true_ranges(bars)
+    atr_series = _wilder(tr, 14)
+    valid_atr = [value for value in atr_series[-60:] if value == value and value > 0]
+    current_atr = valid_atr[-1] if valid_atr else None
+    baseline = sorted(valid_atr[:-1]) if len(valid_atr) > 1 else []
+    median_atr = (baseline[len(baseline) // 2] if len(baseline) % 2 else
+                  (baseline[len(baseline) // 2 - 1] + baseline[len(baseline) // 2]) / 2
+                  if baseline else None)
+    volatility_ratio = current_atr / median_atr if current_atr and median_atr else None
+    volatility_state = (
+        "EXPANSION" if volatility_ratio is not None and volatility_ratio >= 2.5 else
+        "COMPRESSION" if volatility_ratio is not None and volatility_ratio <= 0.45 else
+        "NORMAL" if volatility_ratio is not None else "UNAVAILABLE"
+    )
+    trend_state = "DIRECTIONAL" if efficiency >= 0.35 else "MIXED" if efficiency >= 0.18 else "CHOPPY"
+    return {
+        "trend_efficiency_20": round(efficiency, 4),
+        "volatility_ratio_to_recent_median": round(volatility_ratio, 3) if volatility_ratio is not None else None,
+        "volatility_state": volatility_state,
+        "trend_state": trend_state,
+        "method": "20-bar Kaufman-style efficiency ratio and current Wilder ATR versus recent median",
+    }
 
 
 def _time_quality(bars: list[dict[str, Any]], interval: str, as_of: datetime | None = None) -> dict[str, Any]:
@@ -354,6 +387,7 @@ def analyze_binary_options(
     margin = abs(long_score - short_score)
     candidate = "CALL" if long_score > short_score else "PUT" if short_score > long_score else "NO_TRADE"
     quality = _time_quality(bars, interval, as_of)
+    regime = _market_regime(bars)
     blockers = []
     if quality["stale"]:
         blockers.append("STALE_CLOSED_CANDLES")
@@ -369,6 +403,12 @@ def analyze_binary_options(
         blockers.append("HIGHER_TIMEFRAME_CONFLICT")
     if adx is not None and adx < 12:
         blockers.append("VERY_WEAK_TREND_OR_CHOP")
+    if regime["trend_state"] == "CHOPPY" and adx is not None and adx < 18:
+        blockers.append("LOW_DIRECTIONAL_EFFICIENCY_CHOP")
+    if regime["volatility_state"] == "EXPANSION":
+        blockers.append("ABNORMAL_VOLATILITY_EXPANSION")
+    if regime["volatility_state"] == "COMPRESSION":
+        blockers.append("LOW_VOLATILITY_COMPRESSION")
     if atr_pct > 0.45:
         blockers.append("EXTREME_VOLATILITY")
     if bb_width_pct < 0.015:
@@ -401,6 +441,7 @@ def analyze_binary_options(
         "status": "signal_candidate" if decision != "NO_TRADE" else "wait",
         "candles_used": len(bars), "latest_closed_candle": last.get("timestamp"),
         "quality": quality,
+        "market_regime": regime,
         "indicators": {
             "ema9": round(e9[-1], 8), "ema21": round(e21[-1], 8),
             "ema50": round(e50[-1], 8), "ema100": round(e100[-1], 8),
