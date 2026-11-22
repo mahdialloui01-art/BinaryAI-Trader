@@ -922,7 +922,8 @@ class MainActivity : Activity() {
             val freshDirection = freshItem?.optString("decision", "NO_TRADE") ?: "NO_TRADE"
             val blockers = freshItem?.optJSONArray("blockers")
             val noBlockers = blockers == null || blockers.length() == 0
-            val freshTickConfirmed = freshItem?.optString("timing_status") == "scheduled" &&
+            val freshTickConfirmed = freshItem != null &&
+                freshItem.optString("timing_status") == "scheduled" &&
                 freshItem.optString("timing_reason").isBlank()
             val valid = fresh != null && freshDirection == originalDirection &&
                 noBlockers && freshTickConfirmed
@@ -933,7 +934,7 @@ class MainActivity : Activity() {
                 originalItem.put("entry_status", "FINAL_CONFIRMED")
                 originalItem.put("timing_status", "scheduled")
                 originalItem.put("final_check_reason", "SAME_DIRECTION_NO_BLOCKERS_LIVE_TICK_CONFIRMED")
-                originalItem.put("final_check_price", fresh.optJSONObject("timing")?.optDouble("live_tick_price") ?: JSONObject.NULL)
+                originalItem.put("final_check_price", fresh?.optJSONObject("timing")?.optDouble("live_tick_price") ?: JSONObject.NULL)
             } else {
                 originalItem.put("entry_status", "FINAL_CHECK_FAILED")
                 originalItem.put("timing_status", "cancelled")
