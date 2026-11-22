@@ -65,7 +65,7 @@ def walk_forward_binary_options(
                 if stamp is not None and stamp + timedelta(seconds=seconds) <= decision_at
             ]
         result = analyze_binary_options(
-            base[: i + 1], symbol, interval, visible_higher, as_of=decision_at
+            base[: i + 1], symbol, interval, visible_higher, as_of=decision_at, research_mode=True
         )
         decision = result["decision"]
         decisions[decision] = decisions.get(decision, 0) + 1
