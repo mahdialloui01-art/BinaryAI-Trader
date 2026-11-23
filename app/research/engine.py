@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-ENGINE_VERSION = "2.4.0"
+ENGINE_VERSION = "2.5.0"
 INTERVAL_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400}
 
 
