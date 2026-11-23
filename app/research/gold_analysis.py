@@ -207,9 +207,50 @@ def analyze_gold(candles_by_tf: dict, quote: dict | None = None, now: datetime |
         else:
             stop, target1, target2 = entry + 1.25 * atr, entry - 1.5 * atr, entry - 2.2 * atr
 
+    # Publish a directional bias separately from an actionable confirmation.
+    # This is a deterministic technical-confluence score, NOT a win probability.
+    dominant_direction = "bullish" if direction == "CALL" else ("bearish" if direction == "PUT" else "neutral")
+    direction_label = {"bullish": "صاعد", "bearish": "هابط", "neutral": "غير واضح"}[dominant_direction]
+    entry_zones = []
+    if direction in ("CALL", "PUT") and q_price is not None and q_age is not None and q_age <= 15:
+        ema20 = m5.get("ema20")
+        ema50 = m5.get("ema50")
+        if ema20 is not None and ema50 is not None:
+            half_width = 0.20 * atr
+            center = ema20
+            zone_low, zone_high = center - half_width, center + half_width
+            if direction == "CALL":
+                invalidation = min(support, ema50 - 0.25 * atr)
+                target_a, target_b = center + 1.5 * atr, center + 2.2 * atr
+                trigger = "انتظار ارتداد إلى المنطقة ثم شمعة 5M صاعدة مغلقة تؤكد الارتداد"
+                extension = max(0.0, float(q_price) - ema20) / atr
+            else:
+                invalidation = max(resistance, ema50 + 0.25 * atr)
+                target_a, target_b = center - 1.5 * atr, center - 2.2 * atr
+                trigger = "انتظار ارتداد إلى المنطقة ثم شمعة 5M هابطة مغلقة تؤكد الرفض"
+                extension = max(0.0, ema20 - float(q_price)) / atr
+            entry_zones.append({
+                "type": "pullback_to_ema20", "side": direction,
+                "status": "watch" if score >= 70 else "wait_confirmation",
+                "low": round(min(zone_low, zone_high), 5),
+                "high": round(max(zone_low, zone_high), 5),
+                "reference": round(center, 5),
+                "technical_confluence_pct": score,
+                "extension_from_zone_atr": round(extension, 2),
+                "trigger": trigger,
+                "invalidation": round(invalidation, 5),
+                "take_profit_1": round(target_a, 5),
+                "take_profit_2": round(target_b, 5),
+                "note": "منطقة مراقبة وليست أمر دخول؛ لا تدخل قبل تحقق شرط التأكيد وإعادة تقييم السعر."
+            })
+
     return {
         "status": "ready", "provider": "deriv", "symbol": (quote or {}).get("symbol", "XAUUSD"),
         "decision": decision, "directional_candidate": direction, "score": score,
+        "dominant_direction": dominant_direction, "dominant_direction_label": direction_label,
+        "direction_confidence_pct": score,
+        "direction_confidence_label": "نسبة توافق فني بين الأدلة وليست احتمال نجاح الصفقة",
+        "entry_zones": entry_zones,
         "score_label": "درجة توافق فني وليست احتمال ربح",
         "timeframes": {tf: {**views[tf], "closed_bars": len(cleaned[tf])} for tf in TIMEFRAME_SECONDS},
         "rsi14_5m": rsi, "atr14_5m": round(atr, 5),
