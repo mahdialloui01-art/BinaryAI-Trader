@@ -13,6 +13,7 @@ def test_forex_gold_routes_are_separate_from_binary_options():
     assert "/forex/gold/quote" in paths
     assert "/forex/gold/candles" in paths
     assert "/forex/gold/stream" in paths
+    assert "/forex/gold/analyze" in paths
     assert "/binary-options/{symbol}/contracts" in paths
 
 
