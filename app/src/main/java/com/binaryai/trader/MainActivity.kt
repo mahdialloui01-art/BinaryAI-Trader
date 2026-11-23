@@ -64,8 +64,10 @@ class MainActivity : Activity() {
     private lateinit var changeText: TextView
     private lateinit var marketText: TextView
     private lateinit var qualityText: TextView
+    private lateinit var candlePressureText: TextView
     private var activePage = "home"
     private var lastCandles = JSONArray()
+    private var lastLiveTickPrice: Double? = null
     private var lastTick = JSONObject()
     private var lastHealth = JSONObject()
     private var lastSymbols = JSONArray()
@@ -264,6 +266,11 @@ class MainActivity : Activity() {
         chart.setBackgroundColor(panel)
         chartCard.addView(chart, LinearLayout.LayoutParams(-1, dp(220)))
         chartCard.addView(label("شموع Deriv لدفتر Deriv؛ قد توجد فروق أو تأخيرات لدى المزود والشبكة.", 10f))
+        chartCard.addView(label("قوة المشترين والبائعين — نتيجة كل شمعة", 13f, Color.WHITE, true))
+        candlePressureText = label("بانتظار بيانات الشموع.", 11f, Color.WHITE)
+        candlePressureText.setPadding(dp(8), dp(8), dp(8), dp(8))
+        chartCard.addView(candlePressureText)
+        chartCard.addView(label("النتيجة تقدير من شكل OHLC، والشمعة الحية تضيف اتجاه تغيّر Tick. ليست حجم شراء/بيع منفذاً ولا نسبة نجاح الصفقة.", 10f, muted))
         page.addView(chartCard)
         addGap(page)
         addSection(page, "جودة البيانات")
@@ -289,6 +296,7 @@ class MainActivity : Activity() {
         page.addView(label("وضع البحث فقط • لا تسجيل دخول Deriv • لا تنفيذ صفقات • لا ضمان أرباح", 10f))
         if (lastTick.length() > 0) renderTick()
         if (lastCandles.length() > 0) chart.setCandles(lastCandles)
+        refreshCandlePressure()
     }
 
     private fun buildAssets() {
@@ -754,6 +762,7 @@ class MainActivity : Activity() {
             if (obj != null) {
                 lastCandles = normalizeDerivCandles(obj.optJSONArray("candles") ?: JSONArray())
                 if (activePage == "home" && ::chart.isInitialized) chart.setCandles(lastCandles)
+                refreshCandlePressure()
             } else if (::status.isInitialized) {
                 status.text = "● تعذر تحميل شموع Deriv: ${error ?: "خطأ"}"; status.setTextColor(Color.rgb(255,194,91))
             }
@@ -779,6 +788,7 @@ class MainActivity : Activity() {
     private fun stopLiveStream() {
         liveHandler.removeCallbacks(streamReconnect); streamReconnectPending = false
         streamCall?.cancel(); streamCall = null; streamConnected = false
+        lastLiveTickPrice = null
     }
 
     private fun startLiveUpdates() {
@@ -795,21 +805,73 @@ class MainActivity : Activity() {
         val tickTime = try { parser.parse(timestamp.take(19))?.time ?: System.currentTimeMillis() } catch (_: Exception) { System.currentTimeMillis() }
         val bucket = tickTime / 60000L * 60000L
         val openTime = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", java.util.Locale.US).apply { timeZone = java.util.TimeZone.getTimeZone("UTC") }.format(java.util.Date(bucket))
+        val previousTick = lastLiveTickPrice
+        val up = if (previousTick != null && price > previousTick) 1 else 0
+        val down = if (previousTick != null && price < previousTick) 1 else 0
         val lastIndex = lastCandles.length() - 1
         val last = if (lastIndex >= 0) lastCandles.optJSONObject(lastIndex) else null
         val lastTime = last?.optString("openTime")?.takeIf { it.isNotBlank() } ?: last?.optString("timestamp") ?: ""
         val lastBucket = try { parser.parse(lastTime.take(19))?.time?.div(60000L)?.times(60000L) ?: -1L } catch (_: Exception) { -1L }
         if (last == null || lastBucket != bucket) {
             val candle = JSONObject().put("openTime", openTime).put("open", price).put("high", price)
-                .put("low", price).put("close", price).put("isOpen", true).put("tickVolume", 1)
+                .put("low", price).put("close", price).put("isOpen", true)
+                .put("tickVolume", 1).put("tickCount", 1).put("upTicks", up).put("downTicks", down)
             lastCandles.put(candle)
             while (lastCandles.length() > 300) lastCandles.remove(0)
         } else {
             last.put("high", max(last.optDouble("high", price), price))
             last.put("low", min(last.optDouble("low", price), price))
-            last.put("close", price).put("isOpen", true).put("tickVolume", last.optInt("tickVolume", 0) + 1)
+            last.put("close", price).put("isOpen", true)
+                .put("tickVolume", last.optInt("tickVolume", 0) + 1)
+                .put("tickCount", last.optInt("tickCount", 0) + 1)
+                .put("upTicks", last.optInt("upTicks", 0) + up)
+                .put("downTicks", last.optInt("downTicks", 0) + down)
         }
+        lastLiveTickPrice = price
         if (activePage == "home" && ::chart.isInitialized) chart.setCandles(lastCandles)
+        refreshCandlePressure()
+    }
+
+    private fun refreshCandlePressure() {
+        if (!::candlePressureText.isInitialized) return
+        if (lastCandles.length() == 0) {
+            candlePressureText.text = "بانتظار بيانات الشموع."
+            return
+        }
+        val lines = ArrayList<String>()
+        val start = max(0, lastCandles.length() - 100)
+        for (index in lastCandles.length() - 1 downTo start) {
+            val candle = lastCandles.optJSONObject(index) ?: continue
+            val open = candle.optDouble("open", Double.NaN)
+            val high = candle.optDouble("high", Double.NaN)
+            val low = candle.optDouble("low", Double.NaN)
+            val close = candle.optDouble("close", Double.NaN)
+            val range = high - low
+            if (!open.isFinite() || !high.isFinite() || !low.isFinite() || !close.isFinite() || range <= 0.0) {
+                lines.add("شمعة ${index + 1}: بيانات غير كافية")
+                continue
+            }
+            val closeLocation = ((close - low) / range).coerceIn(0.0, 1.0)
+            val bodyDirection = ((close - open) / range).coerceIn(-1.0, 1.0)
+            val upperWick = (high - max(open, close)).coerceAtLeast(0.0) / range
+            val lowerWick = (min(open, close) - low).coerceAtLeast(0.0) / range
+            val structureBuy = 0.50 * closeLocation + 0.30 * ((bodyDirection + 1.0) / 2.0) +
+                0.20 * ((1.0 + lowerWick - upperWick) / 2.0)
+            val isLive = candle.optBoolean("isOpen", false)
+            val upTicks = candle.optInt("upTicks", 0)
+            val downTicks = candle.optInt("downTicks", 0)
+            val directional = upTicks + downTicks
+            val tickBuy = if (directional > 0) upTicks.toDouble() / directional else 0.5
+            val combined = if (isLive && directional > 0) 0.70 * structureBuy + 0.30 * tickBuy else structureBuy
+            val buyers = (combined * 100.0 + 0.5).toInt().coerceIn(0, 100)
+            val sellers = 100 - buyers
+            val side = when { buyers >= 58 -> "المشترون أقوى"; sellers >= 58 -> "البائعون أقوى"; else -> "توازن" }
+            val stamp = (candle.optString("openTime").ifBlank { candle.optString("timestamp") }).take(16).replace("T", " ")
+            val tag = if (isLive) "● حي" else "مغلقة"
+            val ticks = if (isLive) " | صاعد $upTicks / هابط $downTicks" else ""
+            lines.add("$tag  $stamp  |  شراء $buyers/100 — بيع $sellers/100  |  $side$ticks")
+        }
+        candlePressureText.text = lines.joinToString("\n")
     }
 
     private fun refreshMarket() {
