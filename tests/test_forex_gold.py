@@ -39,3 +39,33 @@ def test_resolve_gold_symbol_is_stable_when_catalogue_is_rate_limited():
 
     item = asyncio.run(resolve_gold_symbol(RateLimitedFeed()))
     assert item["symbol"] == "frxXAUUSD"
+
+
+
+def test_gold_analysis_uses_one_snapshot_and_short_cache(monkeypatch):
+    import app.forex_gold as gold_module
+
+    calls = {"count": 0}
+
+    async def fake_snapshot(self, symbol):
+        calls["count"] += 1
+        assert symbol == "frxXAUUSD"
+        return (
+            {"symbol": symbol, "price": 3600.0, "timestamp": "2026-11-23T05:00:00Z"},
+            {"1m": [], "5m": [], "15m": [], "1h": [], "4h": []},
+        )
+
+    monkeypatch.setattr("app.forex_gold.DerivFeed.gold_analysis_snapshot", fake_snapshot)
+    monkeypatch.setattr("app.forex_gold.analyze_gold", lambda candles, quote: {
+        "status": "ready", "decision": "WAIT", "score": 12, "execution_enabled": False
+    })
+    gold_module._GOLD_ANALYSIS_CACHE.update({"created": 0.0, "result": None})
+
+    client = TestClient(app)
+    first = client.get("/forex/gold/analyze")
+    second = client.get("/forex/gold/analyze")
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert calls["count"] == 1
+    assert second.json()["cache_age_seconds"] >= 0
