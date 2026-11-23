@@ -1,5 +1,6 @@
 import asyncio
 import json
+import time
 from datetime import datetime, timezone
 from typing import AsyncIterator
 
@@ -7,6 +8,12 @@ import websockets
 
 PUBLIC_WS = "wss://api.derivws.com/trading/v1/options/ws/public"
 GRANULARITY = {"1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"4h":14400,"1d":86400}
+
+# Deriv can temporarily reject new public WebSocket handshakes with HTTP 429.
+# Share a cooldown across Gold analysis requests in this Render worker so repeated
+# button taps do not hammer the provider during its rate-limit window.
+_GOLD_WS_COOLDOWN_UNTIL = 0.0
+_GOLD_WS_COOLDOWN_SECONDS = 60.0
 
 class DerivFeed:
     """Public, read-only Deriv market-data adapter. No account token is used."""
@@ -114,6 +121,11 @@ class DerivFeed:
         HTTP 429 handshake limit, especially while the live tick stream is open.
         Requests are sent sequentially on one read-only public connection.
         """
+        global _GOLD_WS_COOLDOWN_UNTIL
+        remaining = _GOLD_WS_COOLDOWN_UNTIL - time.monotonic()
+        if remaining > 0:
+            raise RuntimeError(f"Deriv rate-limit cooldown active; retry in {int(remaining) + 1} seconds")
+
         requests = [
             ("quote", {"ticks": symbol, "subscribe": 0}, "tick"),
             ("1m", {"ticks_history": symbol, "end": "latest", "style": "candles", "granularity": 60, "count": 120}, "candles"),
@@ -123,21 +135,31 @@ class DerivFeed:
             ("4h", {"ticks_history": symbol, "end": "latest", "style": "candles", "granularity": 14400, "count": 100}, "candles"),
         ]
         responses = {}
-        async with websockets.connect(
-            self.url, open_timeout=self.timeout, ping_interval=20, ping_timeout=20,
-        ) as ws:
-            for req_id, (key, payload, expected) in enumerate(requests, start=1):
-                payload = {**payload, "req_id": req_id}
-                await ws.send(json.dumps(payload))
-                while True:
-                    raw = await asyncio.wait_for(ws.recv(), timeout=self.timeout)
-                    msg = json.loads(raw)
-                    if msg.get("error"):
-                        detail = msg["error"].get("message", "Deriv API error")
-                        raise RuntimeError(detail)
-                    if msg.get("req_id") == req_id and msg.get("msg_type") == expected:
-                        responses[key] = msg
-                        break
+        try:
+            async with websockets.connect(
+                self.url, open_timeout=self.timeout, ping_interval=20, ping_timeout=20,
+            ) as ws:
+                for req_id, (key, payload, expected) in enumerate(requests, start=1):
+                    payload = {**payload, "req_id": req_id}
+                    await ws.send(json.dumps(payload))
+                    while True:
+                        raw = await asyncio.wait_for(ws.recv(), timeout=self.timeout)
+                        msg = json.loads(raw)
+                        if msg.get("error"):
+                            detail = msg["error"].get("message", "Deriv API error")
+                            raise RuntimeError(detail)
+                        if msg.get("req_id") == req_id and msg.get("msg_type") == expected:
+                            responses[key] = msg
+                            break
+        except Exception as exc:
+            message = str(exc)
+            if "429" in message or "rate limit" in message.lower():
+                _GOLD_WS_COOLDOWN_UNTIL = time.monotonic() + _GOLD_WS_COOLDOWN_SECONDS
+                raise RuntimeError(
+                    "Deriv rejected the WebSocket handshake with HTTP 429; "
+                    "Gold analysis is paused for 60 seconds to respect the provider limit."
+                ) from exc
+            raise
 
         tick = responses["quote"].get("tick", {})
         epoch = int(tick.get("epoch", 0))
