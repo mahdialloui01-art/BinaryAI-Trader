@@ -116,20 +116,20 @@ async def gold_stream():
     symbol = item["symbol"]
 
     async def relay():
-        yield "retry: 3000\\nevent: status\\ndata: " + json.dumps({
+        yield "retry: 3000\nevent: status\ndata: " + json.dumps({
             "status": "connected",
             "provider": "deriv",
             "symbol": symbol,
-        }) + "\\n\\n"
+        }) + "\n\n"
         try:
             async for tick in feed.stream_ticks(symbol):
-                yield "event: tick\\ndata: " + json.dumps(tick, separators=(",", ":")) + "\\n\\n"
+                yield "event: tick\ndata: " + json.dumps(tick, separators=(",", ":")) + "\n\n"
         except Exception as exc:
-            yield "event: error\\ndata: " + json.dumps({
+            yield "event: error\ndata: " + json.dumps({
                 "provider": "deriv",
                 "symbol": symbol,
                 "error": str(exc),
-            }) + "\\n\\n"
+            }) + "\n\n"
 
     return StreamingResponse(
         relay(),
