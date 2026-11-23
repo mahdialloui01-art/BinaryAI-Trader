@@ -296,6 +296,7 @@ class MainActivity : Activity() {
         page.addView(label("وضع البحث فقط • لا تسجيل دخول Deriv • لا تنفيذ صفقات • لا ضمان أرباح", 10f))
         if (lastTick.length() > 0) renderTick()
         if (lastCandles.length() > 0) chart.setCandles(lastCandles)
+        refreshCandlePressure()
     }
 
     private fun buildAssets() {
