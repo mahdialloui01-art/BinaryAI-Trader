@@ -17,12 +17,12 @@ class DerivFeed:
         self.timeout = timeout
         # Analysis fans out to several Deriv requests. Keep the connection count
         # bounded so a burst does not trigger provider-side WebSocket rejections.
-        self._request_semaphore = asyncio.Semaphore(3)
+        self._request_semaphore = asyncio.Semaphore(2)
 
     async def _request(self, payload: dict, expected: str):
         async with self._request_semaphore:
             last_error = None
-            for attempt in range(2):
+            for attempt in range(3):
                 try:
                     async with websockets.connect(
                         self.url, open_timeout=self.timeout,
@@ -41,8 +41,9 @@ class DerivFeed:
                     raise
                 except (asyncio.TimeoutError, OSError, websockets.exceptions.WebSocketException) as exc:
                     last_error = exc
-                    if attempt == 0:
-                        await asyncio.sleep(0.35)
+                    if attempt < 2:
+                        # Back off more aggressively on provider handshake/rate-limit failures.
+                        await asyncio.sleep(1.0 * (2 ** attempt))
             raise RuntimeError(f"Deriv WebSocket request failed after retry: {last_error}") from last_error
 
     async def symbols(self):
