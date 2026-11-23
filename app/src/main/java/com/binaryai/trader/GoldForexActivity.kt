@@ -5,13 +5,11 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.graphics.Color
-import android.view.View
 import android.widget.*
 import okhttp3.*
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.IOException
-import java.net.URLEncoder
 import java.util.concurrent.TimeUnit
 import kotlin.math.max
 import kotlin.math.min
@@ -235,7 +233,7 @@ class GoldForexActivity : Activity() {
         if (!value.isFinite()) return
         val epoch = tick.optLong("time", 0L)
         val timestamp = tick.optString("timestamp").ifBlank {
-            if (epoch > 0L) java.time.Instant.ofEpochSecond(epoch).toString() else ""
+            ""
         }
         lastTickAt = System.currentTimeMillis()
         runOnUiThread {
