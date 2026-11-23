@@ -7,7 +7,11 @@ def _trend_bars(count, seconds, start, slope):
     rows = []
     for i in range(count):
         base = 2300 + i * slope
-        stamp = start + timedelta(seconds=i * seconds)
+        # Synthetic candle opens must align to their timeframe boundaries,
+        # just like the provider's epoch-based candle history.
+        start_epoch = int(start.timestamp())
+        aligned_epoch = start_epoch - (start_epoch % seconds)
+        stamp = datetime.fromtimestamp(aligned_epoch + i * seconds, timezone.utc)
         rows.append({
             "timestamp": stamp.isoformat().replace("+00:00", "Z"),
             "open": base - slope * 0.2,
