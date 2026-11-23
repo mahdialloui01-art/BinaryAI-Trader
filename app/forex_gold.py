@@ -13,33 +13,23 @@ GOLD_SYMBOL_PREFERENCE = ("frxXAUUSD",)
 
 
 async def resolve_gold_symbol(feed: DerivFeed | None = None) -> dict:
-    """Resolve Gold/USD from Deriv's live active-symbol catalogue; never guess availability."""
-    provider = feed or DerivFeed()
-    try:
-        symbols = await provider.symbols()
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Deriv symbol catalogue unavailable: {exc}") from exc
+    """Return the explicitly configured Deriv XAUUSD underlying without a catalogue call.
 
-    normalized = []
-    for item in symbols:
-        code = str(item.get("symbol") or "").strip()
-        name = str(item.get("display_name") or item.get("name") or "").strip()
-        haystack = f"{code} {name}".lower()
-        if code.lower() in {s.lower() for s in GOLD_SYMBOL_PREFERENCE} or (
-            "gold" in haystack and ("usd" in haystack or "xau" in haystack)
-        ):
-            normalized.append(item)
-
-    for preferred in GOLD_SYMBOL_PREFERENCE:
-        for item in normalized:
-            if str(item.get("symbol", "")).lower() == preferred.lower():
-                return item
-    if normalized:
-        return normalized[0]
-    raise HTTPException(
-        status_code=503,
-        detail="Deriv does not currently list an active Gold/USD (XAUUSD) symbol. No substitute asset was selected.",
-    )
+    The app's live Gold quote/candle feed already identifies frxXAUUSD. Re-querying
+    active_symbols before every Gold operation creates needless WebSocket handshakes
+    and can rate-limit the analysis endpoint (HTTP 429). If this underlying is not
+    available, the quote/history request itself will fail closed with a clear error.
+    """
+    return {
+        "symbol": "frxXAUUSD",
+        "name": "Gold / USD",
+        "display_name": "Gold / USD",
+        "market": "commodities",
+        "exchange_is_open": None,
+        "is_trading_suspended": False,
+        "provider": "deriv",
+        "symbol_source": "configured_deriv_underlying",
+    }
 
 
 def _age_seconds(timestamp: str | None) -> float | None:
