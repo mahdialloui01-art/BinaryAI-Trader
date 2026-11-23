@@ -133,25 +133,36 @@ def analyze_gold(candles_by_tf: dict, quote: dict | None = None, now: datetime |
 
     bull = sum(v["trend"] == "bullish" for v in (m1, m5, m15, h1, h4))
     bear = sum(v["trend"] == "bearish" for v in (m1, m5, m15, h1, h4))
+    bias = "bullish" if bull > bear and bull >= 3 else (
+        "bearish" if bear > bull and bear >= 3 else "neutral"
+    )
+    bias_count = max(bull, bear)
     direction = "CALL" if bull >= 4 and h4["trend"] == "bullish" and h1["trend"] == "bullish" and m15["trend"] == "bullish" else (
         "PUT" if bear >= 4 and h4["trend"] == "bearish" and h1["trend"] == "bearish" and m15["trend"] == "bearish" else "WAIT"
     )
     reasons = []
+    # Score evidence independently from the stricter actionable-entry gate.
+    # A mixed market can have a measurable bias without qualifying for a trade.
     score = 0
-    if direction != "WAIT":
-        score += 35
-        reasons.append("اتجاه 4H و1H و15M متوافق مع أغلبية الأطر")
+    if bias != "neutral":
+        score += 20 + max(0, bias_count - 3) * 8
+        reasons.append(f"ميل {('صاعد' if bias == 'bullish' else 'هابط')} ظاهر في {bias_count}/5 أطر زمنية")
     else:
-        reasons.append("الأطر الزمنية غير متوافقة بما يكفي؛ لا توجد إشارة اتجاهية")
+        score += 5
+        reasons.append("الأطر الزمنية متباينة؛ لا يوجد اتجاه غالب واضح")
+    if direction != "WAIT":
+        reasons.append("تأكيد الاتجاه الأعلى: 4H و1H و15M مع أغلبية الأطر")
+    else:
+        reasons.append("شروط الدخول الصارمة غير مكتملة؛ لا توجد إشارة تنفيذية")
     rsi = m5["rsi14"]
-    if direction == "CALL":
+    if bias == "bullish":
         if rsi is not None and 50 <= rsi <= 68:
             score += 15; reasons.append("RSI على 5M يدعم الصعود دون تشبع واضح")
         elif rsi is not None and rsi > 75:
             score -= 12; reasons.append("RSI مرتفع: خطر مطاردة حركة صاعدة ممتدة")
         else:
             reasons.append("RSI لا يقدم تأكيداً صاعداً قوياً")
-    elif direction == "PUT":
+    elif bias == "bearish":
         if rsi is not None and 32 <= rsi <= 50:
             score += 15; reasons.append("RSI على 5M يدعم الهبوط دون تشبع واضح")
         elif rsi is not None and rsi < 25:
@@ -163,9 +174,9 @@ def analyze_gold(candles_by_tf: dict, quote: dict | None = None, now: datetime |
     prev = cleaned["5m"][-2]
     candle_range = last["high"] - last["low"]
     body = abs(last["close"] - last["open"])
-    if direction == "CALL" and last["close"] > last["open"] and last["close"] > prev["high"]:
+    if bias == "bullish" and last["close"] > last["open"] and last["close"] > prev["high"]:
         score += 20; reasons.append("شمعة 5M مغلقة صاعدة واخترقت قمة الشمعة السابقة")
-    elif direction == "PUT" and last["close"] < last["open"] and last["close"] < prev["low"]:
+    elif bias == "bearish" and last["close"] < last["open"] and last["close"] < prev["low"]:
         score += 20; reasons.append("شمعة 5M مغلقة هابطة وكسرت قاع الشمعة السابقة")
     elif direction != "WAIT":
         reasons.append("لا يوجد تأكيد اختراق من شمعة 5M المغلقة")
@@ -181,9 +192,9 @@ def analyze_gold(candles_by_tf: dict, quote: dict | None = None, now: datetime |
     recent = cleaned["5m"][-21:-1]
     resistance = max(x["high"] for x in recent)
     support = min(x["low"] for x in recent)
-    if direction == "CALL" and resistance - close < 0.35 * atr:
+    if bias == "bullish" and resistance - close < 0.35 * atr:
         score -= 12; reasons.append("السعر قريب جداً من مقاومة محلية")
-    elif direction == "PUT" and close - support < 0.35 * atr:
+    elif bias == "bearish" and close - support < 0.35 * atr:
         score -= 12; reasons.append("السعر قريب جداً من دعم محلي")
 
     q_age = (quote or {}).get("age_seconds")
@@ -209,7 +220,7 @@ def analyze_gold(candles_by_tf: dict, quote: dict | None = None, now: datetime |
 
     # Publish a directional bias separately from an actionable confirmation.
     # This is a deterministic technical-confluence score, NOT a win probability.
-    dominant_direction = "bullish" if direction == "CALL" else ("bearish" if direction == "PUT" else "neutral")
+    dominant_direction = bias
     direction_label = {"bullish": "صاعد", "bearish": "هابط", "neutral": "غير واضح"}[dominant_direction]
     entry_zones = []
     if direction in ("CALL", "PUT") and q_price is not None and q_age is not None and q_age <= 15:
