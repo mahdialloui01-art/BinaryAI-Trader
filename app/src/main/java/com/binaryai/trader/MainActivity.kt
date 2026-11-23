@@ -362,8 +362,11 @@ class MainActivity : Activity() {
         for (key in listOf("1m", "2m", "5m")) {
             val item = forecasts.optJSONObject(key) ?: continue
             val decision = item.optString("decision", "NO_TRADE")
+            val candidate = item.optString("candidate", decision)
             val score = item.optInt("score", 0)
-            val tint = when (decision) { "CALL" -> mint; "PUT" -> red; else -> Color.rgb(255,194,91) }
+            val callStrength = item.optJSONObject("call_strength")?.optInt("score", item.optInt("long_score", 0)) ?: item.optInt("long_score", 0)
+            val putStrength = item.optJSONObject("put_strength")?.optInt("score", item.optInt("short_score", 0)) ?: item.optInt("short_score", 0)
+            val tint = when (candidate) { "CALL" -> mint; "PUT" -> red; else -> Color.rgb(255,194,91) }
             val box = LinearLayout(this).apply {
                 orientation = LinearLayout.VERTICAL
                 setPadding(dp(14), dp(13), dp(14), dp(13))
@@ -371,9 +374,11 @@ class MainActivity : Activity() {
             }
             val head = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             head.addView(label(when (key) { "1m" -> "مدة 1 دقيقة"; "2m" -> "مدة دقيقتين"; else -> "مدة 5 دقائق" }, 14f, Color.WHITE, true), LinearLayout.LayoutParams(0, -2, 1f))
-            head.addView(label(decision, 18f, tint, true))
+            head.addView(label(decision, 18f, if (decision == "NO_TRADE") Color.rgb(255,194,91) else tint, true))
             box.addView(head)
-            box.addView(label("قوة توافق التحليل: $score/100", 12f, tint, true))
+            box.addView(label("الاتجاه المرشح: ${if (candidate == "CALL") "CALL صعود" else if (candidate == "PUT") "PUT هبوط" else "غير محدد"}", 12f, tint, true))
+            box.addView(label("قوة CALL: $callStrength/100    |    قوة PUT: $putStrength/100", 12f, Color.WHITE, true))
+            box.addView(label("قوة توافق الاتجاه الأقوى: $score/100", 11f, tint, true))
             val entryStatus = item.optString("entry_status", "WAITING_FOR_CONFIRMATION")
             val timingStatus = item.optString("timing_status", "not_scheduled")
             val entryRaw = item.optString("entry_time_algeria", "")
@@ -506,7 +511,14 @@ class MainActivity : Activity() {
             target.addView(label("إشارة بحثية فقط — التنفيذ الحقيقي غير معتمد.", 10f, Color.rgb(255,194,91)))
         }
         target.addView(label("الأصل: ${data.optString("symbol")}  |  الإطار: ${data.optString("interval")}  |  المحرك: ${data.optString("engine_version")}", 10f))
-        target.addView(label("CALL: ${data.optInt("long_score")}  |  PUT: ${data.optInt("short_score")}  |  هامش الاتجاه: ${data.optInt("directional_margin")}", 12f, Color.WHITE))
+        target.addView(label("CALL: ${data.optInt("long_score")}/100  |  PUT: ${data.optInt("short_score")}/100  |  هامش الاتجاه: ${data.optInt("directional_margin")}", 12f, Color.WHITE))
+        val strength = data.optJSONObject("signal_strength")
+        if (strength != null) {
+            val call = strength.optJSONObject("call")
+            val put = strength.optJSONObject("put")
+            target.addView(label("قوة CALL: ${call?.optInt("score", data.optInt("long_score")) ?: data.optInt("long_score")}/100 (${call?.optString("level", "--") ?: "--"})", 11f, mint, true))
+            target.addView(label("قوة PUT: ${put?.optInt("score", data.optInt("short_score")) ?: data.optInt("short_score")}/100 (${put?.optString("level", "--") ?: "--"})", 11f, red, true))
+        }
         val mtf = data.optJSONObject("higher_timeframes")
         if (mtf != null) {
             for (tf in listOf("5m", "15m", "1h", "4h")) {

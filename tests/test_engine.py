@@ -39,10 +39,15 @@ def test_engine_returns_full_explainable_research_report():
     assert {"trend_structure", "market_structure", "momentum", "liquidity_sweep",
             "multi_timeframe"}.issubset(result["modules"])
     assert "ema100" in result["indicators"]
-    assert result["engine_version"] == "2.4.0"
+    assert result["engine_version"] == "2.5.0"
     assert result["confidence"] is None
     assert result["confidence_status"] == "NOT_CALIBRATED"
     assert result["confluence_score"] == result["score"]
+    assert result["signal_direction"] == result["candidate"]
+    assert result["signal_strength"]["call"]["score"] == result["long_score"]
+    assert result["signal_strength"]["put"]["score"] == result["short_score"]
+    assert result["signal_strength"]["meaning"] == "technical_confluence_only_not_win_probability"
+    assert result["strength_level"] in {"VERY_STRONG", "STRONG", "MODERATE", "WEAK", "VERY_WEAK"}
     assert result["signal_authorization"]["live_signal_allowed"] is False
     assert result["execution_enabled"] is False
     assert result["entry_zone"]["status"] in {"WAIT_FOR_PULLBACK", "WAIT_FOR_REJECTION", "CONFIRMATION_CANDLE_PRESENT", "ZONE_INVALIDATED"}
@@ -55,6 +60,10 @@ def test_engine_returns_full_explainable_research_report():
         assert forecasts[key]["decision"] in {"CALL", "PUT", "NO_TRADE"}
         assert forecasts[key]["score"] <= 100
         assert len(forecasts[key]["evidence"]) == 5
+        assert forecasts[key]["signal_direction"] == forecasts[key]["candidate"]
+        assert forecasts[key]["call_strength"]["score"] == forecasts[key]["long_score"]
+        assert forecasts[key]["put_strength"]["score"] == forecasts[key]["short_score"]
+        assert forecasts[key]["strength_level"] in {"VERY_STRONG", "STRONG", "MODERATE", "WEAK", "VERY_WEAK"}
 
 
 def test_engine_fails_closed_with_insufficient_data():

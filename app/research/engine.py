@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 
-ENGINE_VERSION = "2.4.0"
+ENGINE_VERSION = "2.5.0"
 INTERVAL_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "30m": 1800, "1h": 3600, "4h": 14400}
 
 
@@ -257,6 +257,20 @@ def _timeframe_bias(rows: list[dict[str, Any]], interval: str, as_of: datetime |
 
 
 
+
+def _strength_level(score: int | float) -> str:
+    """Ordinal strength of technical confluence; never a win probability."""
+    if score >= 85:
+        return "VERY_STRONG"
+    if score >= 75:
+        return "STRONG"
+    if score >= 65:
+        return "MODERATE"
+    if score >= 50:
+        return "WEAK"
+    return "VERY_WEAK"
+
+
 def _directional_horizon_forecasts(
     bars: list[dict[str, Any]],
     interval: str,
@@ -307,6 +321,11 @@ def _directional_horizon_forecasts(
         horizons[f"{minutes}m"] = {
             "horizon_minutes": minutes, "forecast_window": f"next_{minutes}_minutes",
             "decision": decision, "candidate": candidate, "score": score,
+            "signal_direction": candidate,
+            "call_strength": {"score": long_points, "level": _strength_level(long_points)},
+            "put_strength": {"score": short_points, "level": _strength_level(short_points)},
+            "strength_level": _strength_level(score),
+            "strength_label": "CONFLUENCE_NOT_WIN_PROBABILITY",
             "long_score": long_points, "short_score": short_points, "directional_margin": margin,
             "evidence": [{"module": name, "direction": direction or "NEUTRAL", "weight": weight if direction else 0, "detail": detail} for name, direction, weight, detail in votes],
             "blockers": blockers, "note": "درجة توافق الأدلة وليست احتمال نجاح أو ضماناً لاتجاه السعر.",
@@ -532,8 +551,16 @@ def analyze_binary_options(
         expiry_bars = 1
     return {
         **base, "decision": decision, "candidate": candidate,
-        "research_candidate": candidate, "signal_authorization": signal_authorization,
+        "research_candidate": candidate, "signal_direction": candidate,
+        "signal_strength": {
+            "call": {"score": long_score, "level": _strength_level(long_score)},
+            "put": {"score": short_score, "level": _strength_level(short_score)},
+            "selected": {"direction": candidate, "score": score, "level": _strength_level(score)},
+            "meaning": "technical_confluence_only_not_win_probability",
+        },
+        "signal_authorization": signal_authorization,
         "entry_zone": entry_zone, "score": score, "confluence_score": score, "long_score": long_score, "short_score": short_score,
+        "strength_level": _strength_level(score),
         "directional_margin": margin, "confidence": None, "confidence_status": "NOT_CALIBRATED",
         "score_label": "CONFLUENCE_SCORE_NOT_WIN_PROBABILITY",
         "status": "research_signal_candidate" if decision in ("CALL", "PUT") else "wait",
