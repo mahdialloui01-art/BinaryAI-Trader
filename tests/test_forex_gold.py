@@ -22,23 +22,20 @@ def test_gold_candles_reject_unknown_interval():
     assert response.status_code == 422
 
 
-def test_resolve_gold_symbol_prefers_deriv_xauusd():
+def test_resolve_gold_symbol_uses_configured_deriv_underlying_without_catalogue():
     class FakeFeed:
         async def symbols(self):
-            return [
-                {"symbol": "frxEURUSD", "display_name": "EUR/USD"},
-                {"symbol": "frxXAUUSD", "display_name": "Gold/USD"},
-            ]
+            raise AssertionError("Gold analysis must not call active_symbols")
 
     item = asyncio.run(resolve_gold_symbol(FakeFeed()))
     assert item["symbol"] == "frxXAUUSD"
+    assert item["symbol_source"] == "configured_deriv_underlying"
 
 
-def test_resolve_gold_symbol_fails_closed_when_deriv_has_no_gold():
-    class FakeFeed:
+def test_resolve_gold_symbol_is_stable_when_catalogue_is_rate_limited():
+    class RateLimitedFeed:
         async def symbols(self):
-            return [{"symbol": "frxEURUSD", "display_name": "EUR/USD"}]
+            raise RuntimeError("HTTP 429")
 
-    with pytest.raises(HTTPException) as error:
-        asyncio.run(resolve_gold_symbol(FakeFeed()))
-    assert error.value.status_code == 503
+    item = asyncio.run(resolve_gold_symbol(RateLimitedFeed()))
+    assert item["symbol"] == "frxXAUUSD"
