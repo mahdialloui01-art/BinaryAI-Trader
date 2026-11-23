@@ -315,7 +315,24 @@ class GoldForexActivity : Activity() {
                         else -> "انتظار — لا دخول"
                     }
                     lines += "التوافق الفني: ${data.optInt("score")}/100 (ليس احتمال ربح)"
+                    lines += "الاتجاه الغالب: ${data.optString("dominant_direction_label", "غير واضح")}"
+                    lines += "قوة توافق الاتجاه: ${data.optInt("direction_confidence_pct")}% — توافق فني وليس احتمال نجاح"
                     lines += "السعر الحالي: ${data.optString("live_price", "—")}"
+                    val zones = data.optJSONArray("entry_zones") ?: JSONArray()
+                    if (zones.length() > 0) {
+                        lines += "مناطق الدخول المحتملة (للمراقبة):"
+                        for (i in 0 until zones.length()) {
+                            val zone = zones.optJSONObject(i) ?: continue
+                            lines += "• ${zone.optString("side")} من ${zone.optString("low")} إلى ${zone.optString("high")}"
+                            lines += "  مرجع المنطقة: ${zone.optString("reference")} | توافق: ${zone.optInt("technical_confluence_pct")}%"
+                            lines += "  شرط التأكيد: ${zone.optString("trigger")}"
+                            lines += "  إبطال الفكرة: ${zone.optString("invalidation")}"
+                            lines += "  الأهداف: ${zone.optString("take_profit_1")} ثم ${zone.optString("take_profit_2")}"
+                            lines += "  الحالة: ${if (zone.optString("status") == "watch") "صالحة للمراقبة" else "انتظار تأكيد أقوى"}"
+                        }
+                    } else {
+                        lines += "لا توجد منطقة دخول مؤكدة حالياً."
+                    }
                     lines += "الأطر: 1H ${tf.optJSONObject("1h")?.optString("trend") ?: "—"} | 15M ${tf.optJSONObject("15m")?.optString("trend") ?: "—"} | 5M ${tf.optJSONObject("5m")?.optString("trend") ?: "—"} | 1M ${tf.optJSONObject("1m")?.optString("trend") ?: "—"}"
                     if (plan.optDouble("entry_reference", 0.0) > 0.0) {
                         lines += "مرجع الدخول: ${plan.optString("entry_reference")}"
