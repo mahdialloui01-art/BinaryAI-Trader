@@ -40,7 +40,7 @@ def test_gold_analysis_requires_fresh_quote():
     }
     result = analyze_gold(candles, {"price": 2400, "age_seconds": 90, "symbol": "frxXAUUSD"}, now)
     assert result["decision"] == "WAIT"
-    assert any("قديم" in reason for reason in result["reasons"])
+    assert any("قديم" in reason for reason in result["reasons"]), result
     assert result["execution_enabled"] is False
 
 
@@ -66,7 +66,7 @@ def test_gold_analysis_exposes_dominant_bias_and_watch_zone_not_win_probability(
         {"price": last_close, "age_seconds": 1, "symbol": "frxXAUUSD"},
         now,
     )
-    assert result["dominant_direction"] == "bullish"
+    assert result.get("dominant_direction") == "bullish", result
     assert result["dominant_direction_label"] == "صاعد"
     assert 0 <= result["direction_confidence_pct"] <= 100
     assert "ليست احتمال نجاح" in result["direction_confidence_label"]
