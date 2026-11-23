@@ -15,8 +15,8 @@ def _trend_bars(count, seconds, start, slope):
         rows.append({
             "timestamp": stamp.isoformat().replace("+00:00", "Z"),
             "open": base - slope * 0.2,
-            "high": base + 0.5,
-            "low": base - 0.5,
+            "high": max(base + 0.5, base - slope * 0.2, base),
+            "low": min(base - 0.5, base - slope * 0.2, base),
             "close": base,
         })
     return rows
