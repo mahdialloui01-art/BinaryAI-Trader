@@ -314,9 +314,25 @@ class GoldForexActivity : Activity() {
                         "PUT" -> "ميل هابط — PUT"
                         else -> "انتظار — لا دخول"
                     }
-                    lines += "التوافق الفني: ${data.optInt("score")}/100 (ليس احتمال ربح)"
+                    val status = data.optString("status")
+                    val quality = data.optJSONObject("data_quality") ?: JSONObject()
+                    val quoteAge = quality.optDouble("quote_age_seconds", Double.NaN)
+                    val unavailable = status == "insufficient_data" || status == "invalid_volatility" ||
+                        quoteAge.isNaN() || quoteAge > 15.0
+                    if (unavailable) {
+                        lines += "التوافق الفني: غير متاح — لا تعرض 0٪ كأنه تقييم للسوق"
+                        if (status == "insufficient_data") {
+                            lines += "بيانات الشموع المغلقة غير كافية؛ راجع أعداد الشموع في الأطر الزمنية."
+                        } else if (quoteAge.isNaN() || quoteAge > 15.0) {
+                            lines += "تم إيقاف التقييم لأن سعر Deriv غير متاح أو أقدم من 15 ثانية."
+                        } else {
+                            lines += "تعذر حساب ATR؛ بيانات التقلب غير كافية."
+                        }
+                    } else {
+                        lines += "التوافق الفني: ${data.optInt("score")}/100 (ليس احتمال ربح)"
+                        lines += "قوة توافق الاتجاه: ${data.optInt("direction_confidence_pct")}% — توافق فني وليس احتمال نجاح"
+                    }
                     lines += "الاتجاه الغالب: ${data.optString("dominant_direction_label", "غير واضح")}"
-                    lines += "قوة توافق الاتجاه: ${data.optInt("direction_confidence_pct")}% — توافق فني وليس احتمال نجاح"
                     lines += "السعر الحالي: ${data.optString("live_price", "—")}"
                     val zones = data.optJSONArray("entry_zones") ?: JSONArray()
                     if (zones.length() > 0) {
