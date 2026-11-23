@@ -127,7 +127,7 @@ class DerivFeed:
             raise RuntimeError(f"Deriv rate-limit cooldown active; retry in {int(remaining) + 1} seconds")
 
         requests = [
-            ("quote", {"ticks": symbol, "subscribe": 0}, "tick"),
+            ("quote", {"ticks": symbol}, "tick"),
             ("1m", {"ticks_history": symbol, "end": "latest", "style": "candles", "granularity": 60, "count": 120}, "candles"),
             ("5m", {"ticks_history": symbol, "end": "latest", "style": "candles", "granularity": 300, "count": 120}, "candles"),
             ("15m", {"ticks_history": symbol, "end": "latest", "style": "candles", "granularity": 900, "count": 120}, "candles"),
