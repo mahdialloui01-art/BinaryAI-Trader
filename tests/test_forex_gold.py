@@ -3,7 +3,7 @@ from app.main import app
 
 
 def test_forex_gold_routes_are_separate_from_binary_options():
-    paths = {route.path for route in app.routes}
+    paths = set(app.openapi()["paths"])
     assert "/forex/gold/quote" in paths
     assert "/forex/gold/candles" in paths
     assert "/binary-options/{symbol}/contracts" in paths
