@@ -14,6 +14,7 @@ from app.research.backtest import evaluate_binary_trades
 from app.research.engine import ENGINE_VERSION, analyze_binary_options
 from app.research.walk_forward import walk_forward_binary_options
 from app.forex_gold import router as forex_gold_router
+from app.candle_pressure import candle_pressure
 
 class ResearchEvaluationRequest(BaseModel):
     candles: list[dict] = Field(min_length=2, max_length=20000)
@@ -104,11 +105,18 @@ async def market_candles(
 ):
     try:
         candles = await data_service().reference_candles(symbol.upper(), interval, limit)
+        enriched = [
+            {**candle, **candle_pressure(candle, live=False)}
+            for candle in candles
+        ]
         return {
             "provider": "deriv",
             "symbol": symbol.upper(),
             "market_kind": classify_market(symbol),
-            "candles": candles,
+            "interval": interval,
+            "candles": enriched,
+            "pressure_model": "OHLC_STRUCTURE_PROXY_NOT_EXECUTED_BUY_SELL_VOLUME",
+            "pressure_is_probability": False,
         }
     except Exception as exc:
         raise HTTPException(status_code=502, detail=f"Reference candle error: {exc}") from exc
