@@ -223,10 +223,6 @@ class MainActivity : Activity() {
     }
 
     private fun buildHome() {
-        page.addView(actionButton("فتح سوق الفوركس — الذهب XAUUSD") {
-            startActivity(android.content.Intent(this, GoldForexActivity::class.java))
-        })
-        addGap(page, 8)
         addSection(page, "لوحة السوق")
         val settings = card()
         settings.addView(label("رابط خادم BinaryAI", 11f))
@@ -865,25 +861,8 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun isGoldSymbol(value: String): Boolean {
-        val normalized = value.trim()
-        if (normalized.equals("frxXAUUSD", true) || normalized.contains("XAUUSD", true)) return true
-        for (index in 0 until lastSymbols.length()) {
-            val item = lastSymbols.optJSONObject(index) ?: continue
-            if (!item.optString("symbol").equals(normalized, true)) continue
-            val name = item.optString("display_name", item.optString("name", ""))
-            if (name.contains("gold", true) || name.contains("XAU/USD", true)) return true
-        }
-        return false
-    }
-
     private fun loadExampleSignal() {
         val selected = safeSymbol()
-        if (isGoldSymbol(selected)) {
-            toast("الذهب ليس عقد Binary Options؛ نفتح محرك تحليل الذهب المستقل")
-            startActivity(android.content.Intent(this, GoldForexActivity::class.java))
-            return
-        }
         if (lastSymbols.length() == 0) {
             toast("نحمّل قائمة أصول Deriv أولاً؛ أعد التحليل بعد ظهور القائمة")
             loadDerivSymbols()
@@ -1024,11 +1003,6 @@ class MainActivity : Activity() {
     }
 
     private fun runWalkForward() {
-        if (isGoldSymbol(safeSymbol())) {
-            toast("الاختبار التاريخي للباينري لا يعمل على الذهب؛ افتح تحليل الذهب المستقل")
-            startActivity(android.content.Intent(this, GoldForexActivity::class.java))
-            return
-        }
         request("/research/walk-forward/${encodedSymbol()}?interval=1m&limit=1500&payout=0.8&expiry_bars=1") { obj, error ->
             if (obj != null) {
                 lastWalkForward = obj
