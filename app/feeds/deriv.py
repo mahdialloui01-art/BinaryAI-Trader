@@ -107,6 +107,61 @@ class DerivFeed:
             "checked_at": datetime.now(timezone.utc).isoformat(),
         }
 
+    async def gold_analysis_snapshot(self, symbol: str):
+        """Fetch the Gold quote and all analysis timeframes over ONE WebSocket handshake.
+
+        Opening six independent sockets for a single analysis can trigger Deriv's
+        HTTP 429 handshake limit, especially while the live tick stream is open.
+        Requests are sent sequentially on one read-only public connection.
+        """
+        requests = [
+            ("quote", {"ticks": symbol, "subscribe": 0}, "tick"),
+            ("1m", {"ticks_history": symbol, "end": "latest", "style": "candles", "granularity": 60, "count": 120}, "candles"),
+            ("5m", {"ticks_history": symbol, "end": "latest", "style": "candles", "granularity": 300, "count": 120}, "candles"),
+            ("15m", {"ticks_history": symbol, "end": "latest", "style": "candles", "granularity": 900, "count": 120}, "candles"),
+            ("1h", {"ticks_history": symbol, "end": "latest", "style": "candles", "granularity": 3600, "count": 100}, "candles"),
+            ("4h", {"ticks_history": symbol, "end": "latest", "style": "candles", "granularity": 14400, "count": 100}, "candles"),
+        ]
+        responses = {}
+        async with websockets.connect(
+            self.url, open_timeout=self.timeout, ping_interval=20, ping_timeout=20,
+        ) as ws:
+            for req_id, (key, payload, expected) in enumerate(requests, start=1):
+                payload = {**payload, "req_id": req_id}
+                await ws.send(json.dumps(payload))
+                while True:
+                    raw = await asyncio.wait_for(ws.recv(), timeout=self.timeout)
+                    msg = json.loads(raw)
+                    if msg.get("error"):
+                        detail = msg["error"].get("message", "Deriv API error")
+                        raise RuntimeError(detail)
+                    if msg.get("req_id") == req_id and msg.get("msg_type") == expected:
+                        responses[key] = msg
+                        break
+
+        tick = responses["quote"].get("tick", {})
+        epoch = int(tick.get("epoch", 0))
+        quote = {
+            "provider": self.name, "symbol": tick.get("symbol", symbol),
+            "price": tick.get("quote"), "mid": tick.get("quote"),
+            "timestamp": datetime.fromtimestamp(epoch, timezone.utc).isoformat().replace("+00:00", "Z"),
+            "stale": False, "source": "Deriv public WebSocket"
+        }
+        candles = {}
+        for interval in ("1m", "5m", "15m", "1h", "4h"):
+            candles[interval] = []
+            for bar in responses[interval].get("candles", []):
+                stamp = int(bar.get("epoch", 0))
+                iso = datetime.fromtimestamp(stamp, timezone.utc).isoformat().replace("+00:00", "Z")
+                candles[interval].append({
+                    "provider": self.name, "symbol": symbol, "interval": interval,
+                    "timestamp": iso, "openTime": iso,
+                    "open": float(bar["open"]), "high": float(bar["high"]),
+                    "low": float(bar["low"]), "close": float(bar["close"]),
+                    "epoch": stamp
+                })
+        return quote, candles
+
     async def candles(self, symbol: str, interval: str = "1m", limit: int = 300):
         granularity = GRANULARITY.get(interval)
         if not granularity:
