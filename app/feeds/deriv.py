@@ -13,6 +13,12 @@ GRANULARITY = {"1m":60,"5m":300,"15m":900,"30m":1800,"1h":3600,"4h":14400,"1d":8
 # Share a cooldown across Gold analysis requests in this Render worker so repeated
 # button taps do not hammer the provider during its rate-limit window.
 _GOLD_WS_COOLDOWN_UNTIL = 0.0
+_DERIV_WS_COOLDOWN_UNTIL = 0.0
+_DERIV_WS_COOLDOWN_SECONDS = 60.0
+_SYMBOLS_CACHE = None
+_SYMBOLS_CACHE_UNTIL = 0.0
+_SYMBOLS_CACHE_TTL = 600.0
+_SYMBOLS_LOCK = asyncio.Lock()
 _GOLD_WS_COOLDOWN_SECONDS = 60.0
 
 class DerivFeed:
@@ -27,7 +33,13 @@ class DerivFeed:
         self._request_semaphore = asyncio.Semaphore(2)
 
     async def _request(self, payload: dict, expected: str):
+        global _DERIV_WS_COOLDOWN_UNTIL
         async with self._request_semaphore:
+            remaining = _DERIV_WS_COOLDOWN_UNTIL - time.monotonic()
+            if remaining > 0:
+                raise RuntimeError(
+                    f"Deriv connection cooldown active; retry in {int(remaining) + 1} seconds"
+                )
             last_error = None
             for attempt in range(3):
                 try:
@@ -44,17 +56,30 @@ class DerivFeed:
                             if msg.get("msg_type") == expected:
                                 return msg
                 except RuntimeError:
-                    # Provider-declared errors are not transient connection failures.
                     raise
                 except (asyncio.TimeoutError, OSError, websockets.exceptions.WebSocketException) as exc:
                     last_error = exc
+                    response = getattr(exc, "response", None)
+                    status = getattr(response, "status_code", None) or getattr(exc, "status_code", None)
+                    if status == 429 or "429" in str(exc):
+                        _DERIV_WS_COOLDOWN_UNTIL = time.monotonic() + _DERIV_WS_COOLDOWN_SECONDS
+                        raise RuntimeError(
+                            "Deriv rate limit (HTTP 429); new WebSocket requests paused for 60 seconds."
+                        ) from exc
                     if attempt < 2:
-                        # Back off more aggressively on provider handshake/rate-limit failures.
                         await asyncio.sleep(1.0 * (2 ** attempt))
             raise RuntimeError(f"Deriv WebSocket request failed after retry: {last_error}") from last_error
 
     async def symbols(self):
-        msg = await self._request({"active_symbols":"brief"}, "active_symbols")
+        global _SYMBOLS_CACHE, _SYMBOLS_CACHE_UNTIL
+        now = time.monotonic()
+        if _SYMBOLS_CACHE is not None and now < _SYMBOLS_CACHE_UNTIL:
+            return [dict(item) for item in _SYMBOLS_CACHE]
+        async with _SYMBOLS_LOCK:
+            now = time.monotonic()
+            if _SYMBOLS_CACHE is not None and now < _SYMBOLS_CACHE_UNTIL:
+                return [dict(item) for item in _SYMBOLS_CACHE]
+            msg = await self._request({"active_symbols":"brief"}, "active_symbols")
         # The current Deriv API renamed legacy symbol/display fields:
         # symbol -> underlying_symbol, display_name -> underlying_symbol_name.
         # Normalize both current and legacy responses for the Android client.
@@ -79,7 +104,9 @@ class DerivFeed:
                 "pip_size": item.get("pip_size") or item.get("pip"),
                 "provider": self.name
             })
-        return result
+        _SYMBOLS_CACHE = [dict(item) for item in result]
+        _SYMBOLS_CACHE_UNTIL = time.monotonic() + _SYMBOLS_CACHE_TTL
+        return [dict(item) for item in result]
 
     async def contracts_for(self, symbol: str):
         msg = await self._request({"contracts_for": symbol}, "contracts_for")
