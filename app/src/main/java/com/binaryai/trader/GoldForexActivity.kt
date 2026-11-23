@@ -333,7 +333,7 @@ class GoldForexActivity : Activity() {
                     } else {
                         lines += "لا توجد منطقة دخول مؤكدة حالياً."
                     }
-                    lines += "الأطر: 4H ${tf.optJSONObject(\"4h\")?.optString(\"trend\") ?: \"—\"} | 1H ${tf.optJSONObject(\"1h\")?.optString(\"trend\") ?: \"—\"} | 15M ${tf.optJSONObject(\"15m\")?.optString(\"trend\") ?: \"—\"} | 5M ${tf.optJSONObject(\"5m\")?.optString(\"trend\") ?: \"—\"} | 1M ${tf.optJSONObject(\"1m\")?.optString(\"trend\") ?: \"—\"}"
+                    lines += "الأطر: 4H ${tf.optJSONObject("4h")?.optString("trend") ?: "—"} | 1H ${tf.optJSONObject("1h")?.optString("trend") ?: "—"} | 15M ${tf.optJSONObject("15m")?.optString("trend") ?: "—"} | 5M ${tf.optJSONObject("5m")?.optString("trend") ?: "—"} | 1M ${tf.optJSONObject("1m")?.optString("trend") ?: "—"}"
                     if (plan.optDouble("entry_reference", 0.0) > 0.0) {
                         lines += "مرجع الدخول: ${plan.optString("entry_reference")}"
                         lines += "وقف الخسارة: ${plan.optString("stop_loss")}"
