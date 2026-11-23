@@ -1,5 +1,7 @@
 """Deriv-backed, read-only XAU/USD Forex market data and live tick stream."""
+import asyncio
 import json
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Query
@@ -10,6 +12,9 @@ from app.research.gold_analysis import analyze_gold
 
 router = APIRouter(prefix="/forex/gold", tags=["forex-gold"])
 GOLD_SYMBOL_PREFERENCE = ("frxXAUUSD",)
+_GOLD_ANALYSIS_CACHE = {"created": 0.0, "result": None}
+_GOLD_ANALYSIS_LOCK = asyncio.Lock()
+_GOLD_ANALYSIS_CACHE_SECONDS = 8.0
 
 
 async def resolve_gold_symbol(feed: DerivFeed | None = None) -> dict:
@@ -135,27 +140,32 @@ async def gold_stream():
 
 @router.get("/analyze")
 async def analyze_gold_market():
-    """Conservative multi-timeframe Gold analysis from Deriv closed candles + live quote."""
-    import asyncio
-
+    """Conservative multi-timeframe Gold analysis from one Deriv WebSocket session."""
     feed = DerivFeed()
     item = await resolve_gold_symbol(feed)
     symbol = item["symbol"]
-    try:
-        quote, m1, m5, m15, h1, h4 = await asyncio.gather(
-            feed.tick(symbol),
-            feed.candles(symbol, "1m", 300),
-            feed.candles(symbol, "5m", 240),
-            feed.candles(symbol, "15m", 180),
-            feed.candles(symbol, "1h", 100),
-            feed.candles(symbol, "4h", 100),
-        )
-    except Exception as exc:
-        raise HTTPException(status_code=502, detail=f"Deriv Gold analysis data unavailable: {exc}") from exc
-    age = _age_seconds(quote.get("timestamp"))
-    quote["age_seconds"] = age
-    result = analyze_gold({"1m": m1, "5m": m5, "15m": m15, "1h": h1, "4h": h4}, quote)
-    result["name"] = item.get("display_name") or item.get("name") or "Gold / USD"
-    result["live_price"] = quote.get("price")
-    result["quote_timestamp"] = quote.get("timestamp")
-    return result
+
+    # Coalesce simultaneous app refreshes and reuse a very recent snapshot.
+    # This avoids opening repeated Deriv handshakes when the screen refreshes.
+    async with _GOLD_ANALYSIS_LOCK:
+        cache_age = time.monotonic() - _GOLD_ANALYSIS_CACHE["created"]
+        if _GOLD_ANALYSIS_CACHE["result"] is not None and cache_age < _GOLD_ANALYSIS_CACHE_SECONDS:
+            return {**_GOLD_ANALYSIS_CACHE["result"], "cache_age_seconds": round(cache_age, 2)}
+
+        try:
+            quote, candles = await feed.gold_analysis_snapshot(symbol)
+        except Exception as exc:
+            raise HTTPException(
+                status_code=503,
+                detail=f"Deriv Gold analysis temporarily rate-limited or unavailable: {exc}. Retry shortly; no stale signal was returned."
+            ) from exc
+
+        age = _age_seconds(quote.get("timestamp"))
+        quote["age_seconds"] = age
+        result = analyze_gold(candles, quote)
+        result["name"] = item.get("display_name") or item.get("name") or "Gold / USD"
+        result["live_price"] = quote.get("price")
+        result["quote_timestamp"] = quote.get("timestamp")
+        result["data_source_note"] = "Quote and five candle timeframes fetched over one Deriv WebSocket session."
+        _GOLD_ANALYSIS_CACHE.update({"created": time.monotonic(), "result": result})
+        return result
