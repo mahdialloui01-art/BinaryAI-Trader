@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from math import isfinite
 
 
-TIMEFRAME_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600}
+TIMEFRAME_SECONDS = {"1m": 60, "5m": 300, "15m": 900, "1h": 3600, "4h": 14400}
 
 
 def _number(row, key):
@@ -113,7 +113,7 @@ def analyze_gold(candles_by_tf: dict, quote: dict | None = None, now: datetime |
     """Return a conservative confluence decision; score is not win probability."""
     now = now or datetime.now(timezone.utc)
     cleaned = {tf: _closed(candles_by_tf.get(tf, []), tf, now) for tf in TIMEFRAME_SECONDS}
-    minimum = {"1m": 60, "5m": 60, "15m": 60, "1h": 55}
+    minimum = {"1m": 60, "5m": 60, "15m": 60, "1h": 55, "4h": 55}
     missing = [tf for tf, count in minimum.items() if len(cleaned[tf]) < count]
     if missing:
         return {"status": "insufficient_data", "decision": "WAIT", "score": 0,
@@ -123,7 +123,7 @@ def analyze_gold(candles_by_tf: dict, quote: dict | None = None, now: datetime |
                 "execution_enabled": False}
 
     views = {tf: _timeframe_view(rows) for tf, rows in cleaned.items()}
-    m1, m5, m15, h1 = (views[x] for x in ("1m", "5m", "15m", "1h"))
+    m1, m5, m15, h1, h4 = (views[x] for x in ("1m", "5m", "15m", "1h", "4h"))
     atr = _atr(cleaned["5m"])
     close = m5["close"]
     if not atr or atr <= 0:
@@ -131,16 +131,16 @@ def analyze_gold(candles_by_tf: dict, quote: dict | None = None, now: datetime |
                 "reasons": ["تعذر حساب ATR بشكل موثوق"], "timeframes": views,
                 "execution_enabled": False}
 
-    bull = sum(v["trend"] == "bullish" for v in (m1, m5, m15, h1))
-    bear = sum(v["trend"] == "bearish" for v in (m1, m5, m15, h1))
-    direction = "CALL" if bull >= 3 and h1["trend"] == "bullish" and m15["trend"] == "bullish" else (
-        "PUT" if bear >= 3 and h1["trend"] == "bearish" and m15["trend"] == "bearish" else "WAIT"
+    bull = sum(v["trend"] == "bullish" for v in (m1, m5, m15, h1, h4))
+    bear = sum(v["trend"] == "bearish" for v in (m1, m5, m15, h1, h4))
+    direction = "CALL" if bull >= 4 and h4["trend"] == "bullish" and h1["trend"] == "bullish" and m15["trend"] == "bullish" else (
+        "PUT" if bear >= 4 and h4["trend"] == "bearish" and h1["trend"] == "bearish" and m15["trend"] == "bearish" else "WAIT"
     )
     reasons = []
     score = 0
     if direction != "WAIT":
         score += 35
-        reasons.append("اتجاه الإطارين 1H و15M متوافق مع أغلبية الأطر")
+        reasons.append("اتجاه 4H و1H و15M متوافق مع أغلبية الأطر")
     else:
         reasons.append("الأطر الزمنية غير متوافقة بما يكفي؛ لا توجد إشارة اتجاهية")
     rsi = m5["rsi14"]

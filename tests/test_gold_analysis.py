@@ -32,6 +32,7 @@ def test_gold_analysis_requires_fresh_quote():
         "5m": _trend_bars(120, 300, now - timedelta(minutes=605), 0.15),
         "15m": _trend_bars(100, 900, now - timedelta(minutes=1501), 0.45),
         "1h": _trend_bars(80, 3600, now - timedelta(hours=81), 1.8),
+        "4h": _trend_bars(80, 14400, now - timedelta(hours=321), 7.2),
     }
     result = analyze_gold(candles, {"price": 2400, "age_seconds": 90, "symbol": "frxXAUUSD"}, now)
     assert result["decision"] == "WAIT"
@@ -53,6 +54,7 @@ def test_gold_analysis_exposes_dominant_bias_and_watch_zone_not_win_probability(
         "5m": _trend_bars(120, 300, now - timedelta(minutes=605), 0.15),
         "15m": _trend_bars(100, 900, now - timedelta(minutes=1501), 0.45),
         "1h": _trend_bars(80, 3600, now - timedelta(hours=81), 1.8),
+        "4h": _trend_bars(80, 14400, now - timedelta(hours=321), 7.2),
     }
     last_close = candles["5m"][-1]["close"]
     result = analyze_gold(
