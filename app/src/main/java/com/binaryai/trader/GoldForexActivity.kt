@@ -34,6 +34,7 @@ class GoldForexActivity : Activity() {
     private lateinit var price: TextView
     private lateinit var info: TextView
     private lateinit var chart: CandleChartView
+    private lateinit var analysis: TextView
     private lateinit var candles: JSONArray
     private var lastTickAt = 0L
     private var selectedSymbol = "frxXAUUSD"
@@ -77,12 +78,22 @@ class GoldForexActivity : Activity() {
                 loadCandles()
             }
         })
+        root.addView(Button(this).apply {
+            text = "تحليل احترافي متعدد الأطر"; isAllCaps = false
+            setOnClickListener { runGoldAnalysis() }
+        })
         root.addView(TextView(this).apply {
             text = "مخطط الشموع الحي — إطار دقيقة"
             textSize = 14f; setTextColor(Color.WHITE); setPadding(0, 20, 0, 10)
         })
         chart = CandleChartView(this).apply { setBackgroundColor(panel) }
         root.addView(chart, LinearLayout.LayoutParams(-1, dp(260)))
+        analysis = TextView(this).apply {
+            text = "اضغط على تحليل احترافي لقراءة اتجاه 1M و5M و15M و1H ومستويات المخاطرة."
+            textSize = 13f; setTextColor(Color.WHITE); setPadding(12, 16, 12, 16)
+            setBackgroundColor(panel)
+        }
+        root.addView(analysis, LinearLayout.LayoutParams(-1, -2).apply { topMargin = dp(12) })
         root.addView(TextView(this).apply {
             text = "الشمعة الحالية تتحدث مع كل Tick من Deriv. إذا كان سوق الذهب مغلقاً أو الرمز غير متاح، سيظهر ذلك دون التحويل إلى مصدر آخر."
             textSize = 10f; setTextColor(muted); setPadding(0, 14, 0, 0)
@@ -274,6 +285,52 @@ class GoldForexActivity : Activity() {
             last.put("tickVolume", last.optInt("tickVolume", 0) + 1)
         }
         chart.setCandles(candles)
+    }
+
+
+    private fun runGoldAnalysis() {
+        analysis.text = "جارٍ تحليل الذهب من شموع Deriv المغلقة..."
+        val request = Request.Builder().url("$baseUrl/forex/gold/analyze").get().build()
+        http.newCall(request).enqueue(object : Callback {
+            override fun onFailure(call: Call, e: IOException) {
+                runOnUiThread { analysis.text = "تعذر التحليل: ${e.message ?: "network error"}" }
+            }
+            override fun onResponse(call: Call, response: Response) {
+                val body = response.body?.string().orEmpty()
+                val code = response.code
+                response.close()
+                if (code !in 200..299) {
+                    runOnUiThread { analysis.text = "فشل تحليل الذهب HTTP $code: ${body.take(180)}" }
+                    return
+                }
+                try {
+                    val data = JSONObject(body)
+                    val plan = data.optJSONObject("trade_plan") ?: JSONObject()
+                    val tf = data.optJSONObject("timeframes") ?: JSONObject()
+                    val reasons = data.optJSONArray("reasons") ?: JSONArray()
+                    val lines = mutableListOf<String>()
+                    lines += "قرار التحليل: " + when (data.optString("decision")) {
+                        "CALL" -> "ميل صاعد — CALL"
+                        "PUT" -> "ميل هابط — PUT"
+                        else -> "انتظار — لا دخول"
+                    }
+                    lines += "التوافق الفني: ${data.optInt("score")}/100 (ليس احتمال ربح)"
+                    lines += "السعر الحالي: ${data.optString("live_price", "—")}"
+                    lines += "الأطر: 1H ${tf.optJSONObject("1h")?.optString("trend") ?: "—"} | 15M ${tf.optJSONObject("15m")?.optString("trend") ?: "—"} | 5M ${tf.optJSONObject("5m")?.optString("trend") ?: "—"} | 1M ${tf.optJSONObject("1m")?.optString("trend") ?: "—"}"
+                    if (plan.optDouble("entry_reference", 0.0) > 0.0) {
+                        lines += "مرجع الدخول: ${plan.optString("entry_reference")}"
+                        lines += "وقف الخسارة: ${plan.optString("stop_loss")}"
+                        lines += "الهدف 1: ${plan.optString("take_profit_1")} | الهدف 2: ${plan.optString("take_profit_2")}"
+                    }
+                    lines += "الأسباب:"
+                    for (i in 0 until reasons.length()) lines += "• " + reasons.optString(i)
+                    lines += "تحليل فني فقط — لا تنفيذ ولا ضمان للنتيجة."
+                    runOnUiThread { analysis.text = lines.joinToString("\n") }
+                } catch (e: Exception) {
+                    runOnUiThread { analysis.text = "تعذر قراءة نتيجة التحليل: ${e.message ?: ""}" }
+                }
+            }
+        })
     }
 
     private fun scheduleReconnect() {
