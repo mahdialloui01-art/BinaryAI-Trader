@@ -35,13 +35,13 @@ def test_biquote_open_time_is_used_for_candle_freshness():
 
 
 def test_otc_stream_route_is_registered():
-    paths = {route.path for route in app.routes}
+    paths = set(app.openapi()["paths"])
     assert "/quotex/stream" in paths
     assert "/quotex/symbols" in paths
 
 
 def test_deriv_public_routes_are_registered():
-    paths = {route.path for route in app.routes}
+    paths = set(app.openapi()["paths"])
     assert "/deriv/stream" in paths
     assert "/deriv/{symbol}/contracts" in paths
     assert "/symbols" in paths
@@ -49,6 +49,6 @@ def test_deriv_public_routes_are_registered():
 
 
 def test_professional_analysis_and_walk_forward_routes_are_registered():
-    paths = {route.path for route in app.routes}
+    paths = set(app.openapi()["paths"])
     assert "/analysis/{symbol}" in paths
     assert "/research/walk-forward/{symbol}" in paths

@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from app.research.backtest import evaluate_binary_trades
 from app.research.engine import ENGINE_VERSION, analyze_binary_options
 from app.research.walk_forward import walk_forward_binary_options
+from app.forex_gold import router as forex_gold_router
 
 class ResearchEvaluationRequest(BaseModel):
     candles: list[dict] = Field(min_length=2, max_length=20000)
@@ -29,6 +30,9 @@ app = FastAPI(
     version="0.3.0",
     description="Free-first, read-only market-data research API. No live execution.",
 )
+
+# Separate XAUUSD Forex reference endpoints; existing Deriv Binary Options routes remain unchanged.
+app.include_router(forex_gold_router)
 
 
 @app.post("/research/evaluate")

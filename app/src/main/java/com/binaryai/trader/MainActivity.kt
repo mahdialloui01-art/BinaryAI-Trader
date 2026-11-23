@@ -223,6 +223,10 @@ class MainActivity : Activity() {
     }
 
     private fun buildHome() {
+        page.addView(actionButton("فتح سوق الفوركس — الذهب XAUUSD") {
+            startActivity(android.content.Intent(this, GoldForexActivity::class.java))
+        })
+        addGap(page, 8)
         addSection(page, "لوحة السوق")
         val settings = card()
         settings.addView(label("رابط خادم BinaryAI", 11f))
