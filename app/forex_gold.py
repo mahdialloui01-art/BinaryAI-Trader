@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from app.feeds.deriv import DerivFeed
+from app.research.gold_analysis import analyze_gold
 
 router = APIRouter(prefix="/forex/gold", tags=["forex-gold"])
 GOLD_SYMBOL_PREFERENCE = ("frxXAUUSD",)
@@ -140,3 +141,30 @@ async def gold_stream():
             "X-Accel-Buffering": "no",
         },
     )
+
+
+@router.get("/analyze")
+async def analyze_gold_market():
+    """Conservative multi-timeframe Gold analysis from Deriv closed candles + live quote."""
+    import asyncio
+
+    feed = DerivFeed()
+    item = await resolve_gold_symbol(feed)
+    symbol = item["symbol"]
+    try:
+        quote, m1, m5, m15, h1 = await asyncio.gather(
+            feed.tick(symbol),
+            feed.candles(symbol, "1m", 300),
+            feed.candles(symbol, "5m", 240),
+            feed.candles(symbol, "15m", 180),
+            feed.candles(symbol, "1h", 100),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=502, detail=f"Deriv Gold analysis data unavailable: {exc}") from exc
+    age = _age_seconds(quote.get("timestamp"))
+    quote["age_seconds"] = age
+    result = analyze_gold({"1m": m1, "5m": m5, "15m": m15, "1h": h1}, quote)
+    result["name"] = item.get("display_name") or item.get("name") or "Gold / USD"
+    result["live_price"] = quote.get("price")
+    result["quote_timestamp"] = quote.get("timestamp")
+    return result
