@@ -1066,7 +1066,7 @@ class MainActivity : Activity() {
     }
 }
 
-private class CandleChartView(context: android.content.Context) : View(context) {
+class CandleChartView(context: android.content.Context) : View(context) {
     private val candles = ArrayList<DoubleArray>()
     private val grid = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.rgb(43, 57, 76); strokeWidth = 1f }
     private val wick = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = 2f; strokeCap = Paint.Cap.ROUND }
