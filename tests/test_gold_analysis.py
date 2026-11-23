@@ -7,12 +7,16 @@ def _trend_bars(count, seconds, start, slope):
     rows = []
     for i in range(count):
         base = 2300 + i * slope
-        stamp = start + timedelta(seconds=i * seconds)
+        # Synthetic candle opens must align to their timeframe boundaries,
+        # just like the provider's epoch-based candle history.
+        start_epoch = int(start.timestamp())
+        aligned_epoch = start_epoch - (start_epoch % seconds)
+        stamp = datetime.fromtimestamp(aligned_epoch + i * seconds, timezone.utc)
         rows.append({
             "timestamp": stamp.isoformat().replace("+00:00", "Z"),
             "open": base - slope * 0.2,
-            "high": base + 0.5,
-            "low": base - 0.5,
+            "high": max(base + 0.5, base - slope * 0.2, base),
+            "low": min(base - 0.5, base - slope * 0.2, base),
             "close": base,
         })
     return rows
@@ -36,7 +40,7 @@ def test_gold_analysis_requires_fresh_quote():
     }
     result = analyze_gold(candles, {"price": 2400, "age_seconds": 90, "symbol": "frxXAUUSD"}, now)
     assert result["decision"] == "WAIT"
-    assert any("قديم" in reason for reason in result["reasons"])
+    assert any("قديم" in reason for reason in result["reasons"]), result
     assert result["execution_enabled"] is False
 
 
@@ -62,7 +66,7 @@ def test_gold_analysis_exposes_dominant_bias_and_watch_zone_not_win_probability(
         {"price": last_close, "age_seconds": 1, "symbol": "frxXAUUSD"},
         now,
     )
-    assert result["dominant_direction"] == "bullish"
+    assert result.get("dominant_direction") == "bullish", result
     assert result["dominant_direction_label"] == "صاعد"
     assert 0 <= result["direction_confidence_pct"] <= 100
     assert "ليست احتمال نجاح" in result["direction_confidence_label"]
